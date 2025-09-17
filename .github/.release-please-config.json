@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "include-v-in-tag": true,
+  "include-component-in-tag": false,
+  "signoff": "Straw Hat, LLC <opensource@straw-hat-llc.com>",
+  "changelog-sections": [
+    {
+      "type": "feat",
+      "section": "Features",
+      "hidden": false
+    },
+    {
+      "type": "fix",
+      "section": "Bug Fixes",
+      "hidden": false
+    }
+  ],
+  "packages": {},
+  "plugins": [
+    {
+      "type": "sentence-case"
+    }
+  ]
+}
