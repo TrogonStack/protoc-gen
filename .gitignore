@@ -33,3 +33,4 @@ go.work.sum
 
 # Generated build files
 protoc-gen-connect-go-servicestruct
+protoc-gen-connect-go-servicestruct.wasm
