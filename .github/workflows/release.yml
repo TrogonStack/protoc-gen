@@ -42,22 +42,11 @@ jobs:
           chmod +x protoc-gen-connect-go-servicestruct
           GOOS=wasip1 GOARCH=wasm go build -o protoc-gen-connect-go-servicestruct.wasm ./cmd/${{ matrix.plugin }}
 
-      - name: Push native plugin to BSR
+      - name: Push plugin to BSR
         run: |
           buf plugin push buf.build/trogonstack/${{ matrix.plugin }} \
             --binary=protoc-gen-connect-go-servicestruct \
             --create \
-            --create-type=protoc \
             --create-visibility=public \
             --label=${{ github.event.release.tag_name }} \
             --label=latest
-      - name: Push WebAssembly plugin to BSR
-        run: |
-          buf plugin push buf.build/trogonstack/${{ matrix.plugin }} \
-            --binary=protoc-gen-connect-go-servicestruct.wasm \
-            --create \
-            --create-type=protoc \
-            --create-visibility=public \
-            --label=${{ github.event.release.tag_name }}-wasm \
-            --label=latest-wasm
-
