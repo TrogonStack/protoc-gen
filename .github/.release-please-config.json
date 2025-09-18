@@ -22,8 +22,8 @@
     }
   ],
   "packages": {
-    ".": {
-      "component": "protoc-gen"
+    "cmd/protoc-gen-connect-go-servicestruct": {
+      "component": "protoc-gen-connect-go-servicestruct"
     }
   },
   "plugins": [
