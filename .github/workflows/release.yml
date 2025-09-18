@@ -38,7 +38,7 @@ jobs:
 
       - name: Build plugin binaries
         run: |
-          GOOS=wasip1 GOARCH=wasm go build -o ${{{ matrix.plugin }}.wasm ./cmd/${{ matrix.plugin }}
+          GOOS=wasip1 GOARCH=wasm go build -o ${{ matrix.plugin }}.wasm ./cmd/${{ matrix.plugin }}
 
       - name: Push plugin to BSR
         run: |
