@@ -74,12 +74,6 @@ tasks:
       - echo "Building protoc plugin binary..."
       - go build -o protoc-gen-connect-go-servicestruct ./cmd/protoc-gen-connect-go-servicestruct
 
-  build-plugin-wasm:
-    desc: Build the protoc plugin as WebAssembly binary
-    cmds:
-      - echo "Building protoc plugin as WebAssembly..."
-      - GOOS=wasip1 GOARCH=wasm go build -o protoc-gen-connect-go-servicestruct.wasm ./cmd/protoc-gen-connect-go-servicestruct
-
   dev-test:
     desc: Development workflow - fmt, vet, and generate coverage HTML
     deps: [fmt, vet, test-coverage-html]
