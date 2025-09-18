@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-connect-go-servicestruct@v0.1.0...protoc-gen-connect-go-servicestruct@v0.1.1) (2025-09-18)
+
+
+### Bug Fixes
+
+* Using the go import path ([#9](https://github.com/TrogonStack/protoc-gen/issues/9)) ([cf849b6](https://github.com/TrogonStack/protoc-gen/commit/cf849b60675d71e35ee5fb0df9c7a2ba424c7877))
+
 ## 0.1.0 (2025-09-18)
 
 
