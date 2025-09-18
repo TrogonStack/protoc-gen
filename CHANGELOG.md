@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen@v1.0.0...protoc-gen@v1.0.1) (2025-09-18)
+
+
+### Bug Fixes
+
+* Correct syntax in release workflow for building WASM plugin ([b2cc78f](https://github.com/TrogonStack/protoc-gen/commit/b2cc78f0fcdff3c1ffaa93cdd8470d074e8b290d))
+
 ## 1.0.0 (2025-09-18)
 
 
