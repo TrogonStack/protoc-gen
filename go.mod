@@ -1,6 +1,6 @@
 module github.com/TrogonStack/protoc-gen
 
-go 1.24.2
+go 1.25.1
 
 require (
 	connectrpc.com/connect v1.18.1
