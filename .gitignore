@@ -31,6 +31,6 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# Generated build files
-protoc-gen-connect-go-servicestruct
-protoc-gen-connect-go-servicestruct.wasm
+# Generated protoc plugin binaries (root directory only)
+/protoc-gen-*
+/protoc-gen-*.wasm
