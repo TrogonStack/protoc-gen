@@ -5,11 +5,6 @@ tasks:
     desc: Run fmt, vet, lint, and test
     deps: [fmt, vet, lint, test]
 
-  help:
-    desc: Show available tasks
-    cmds:
-      - task --list
-
   test:
     desc: Run all tests
     cmds:
@@ -28,16 +23,6 @@ tasks:
       - echo "Running tests with coverage..."
       - go test -cover ./...
 
-  test-coverage-html:
-    desc: Run tests and generate HTML coverage report
-    deps: [clean]
-    cmds:
-      - echo "Running tests and generating HTML coverage report..."
-      - go test -coverprofile=coverage.out -covermode=count ./...
-      - go tool cover -html=coverage.out -o coverage.html
-      - echo "Coverage report generated at coverage.html"
-      - echo "Open coverage.html in your browser to view the report"
-
   fmt:
     desc: Format code with gofmt
     cmds:
@@ -50,17 +35,22 @@ tasks:
       - echo "Running go vet..."
       - go vet ./...
 
+  golangci-lint-check-installed:
+    desc: Check if golangci-lint is installed
+    internal: true
+    preconditions:
+      - sh: command -v golangci-lint
+        msg: |
+          golangci-lint not found. Install with:
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+            or visit https://golangci-lint.run/welcome/install/
+
   lint:
-    desc: Run golangci-lint (if available)
+    desc: Run golangci-lint
+    deps: [golangci-lint-check-installed]
     cmds:
       - echo "Running linter..."
-      - |
-        if command -v golangci-lint >/dev/null 2>&1; then
-          golangci-lint run
-        else
-          echo "golangci-lint not found, skipping lint check"
-          echo "Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
-        fi
+      - golangci-lint run
 
   build:
     desc: Build the package
@@ -87,14 +77,10 @@ tasks:
       - echo "Building Elixir gRPC protoc plugin binary..."
       - go build -o protoc-gen-elixir-grpc ./cmd/protoc-gen-elixir-grpc
 
-  dev-test:
-    desc: Development workflow - fmt, vet, and generate coverage HTML
-    deps: [fmt, vet, test-coverage-html]
+  clean:
+    desc: Clean build artifacts and coverage files
     cmds:
-      - echo "Development test complete - check coverage.html"
-
-  ci-test:
-    desc: CI workflow - fmt, vet, and test with coverage
-    deps: [fmt, vet, test-coverage]
-    cmds:
-      - echo "CI test complete"
+      - echo "Cleaning artifacts..."
+      - rm -rf dist/
+      - rm -f coverage.out coverage.html
+      - rm -f protoc-gen-*

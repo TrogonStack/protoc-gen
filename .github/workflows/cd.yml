@@ -1,0 +1,156 @@
+---
+name: cd
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode (snapshot, no publish)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      tag:
+        description: 'Tag to use for version extraction (optional, e.g., protoc-gen-elixir-grpc@v0.2.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  # Run tests only for manual workflow_dispatch triggers to catch issues during testing.
+  # For actual releases, CI has already validated the code.
+  # TODO: Consider removing workflow_dispatch entirely once the release process is stable.
+  test:
+    name: Run Tests
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version: "1.24"
+
+      - name: Run Tests
+        run: go test -race -v ./...
+
+      - name: Run Vet
+        run: go vet ./...
+
+  goreleaser:
+    name: Release with GoReleaser
+    needs: test
+    if: |
+      always() &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version: "1.24"
+
+      - name: Extract Version from Tag
+        id: version
+        run: |
+          # Extract version from monorepo tags like protoc-gen-elixir-grpc@v0.1.0
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            # Use tag from workflow_dispatch input if provided
+            TAG="${{ github.event.inputs.tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Use the ref if it's a tag
+            TAG="${{ github.ref_name }}"
+          else
+            echo "ERROR: No tag provided. Please provide a tag via workflow_dispatch input."
+            echo "Example: gh workflow run cd.yml -f dry_run=true -f tag=protoc-gen-elixir-grpc@v0.1.0"
+            exit 1
+          fi
+          
+          # Validate tag format (must contain @ separator)
+          if [[ ! "$TAG" =~ @ ]]; then
+            echo "ERROR: Tag must follow pattern 'component@version', got: ${TAG}"
+            echo "Examples: protoc-gen-elixir-grpc@v0.1.0, protoc-gen-connect-go-servicestruct@v0.2.0"
+            exit 1
+          fi
+          
+          VERSION="${TAG##*@}"
+          COMPONENT="${TAG%%@*}"
+          
+          # Validate version is not empty
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Failed to extract version from tag: ${TAG}"
+            exit 1
+          fi
+          
+          # Validate component is known
+          case "$COMPONENT" in
+            protoc-gen-elixir-grpc|protoc-gen-connect-go-servicestruct)
+              echo "Valid component: ${COMPONENT}"
+              ;;
+            *)
+              echo "ERROR: Unknown component: ${COMPONENT}"
+              echo "Valid components: protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct"
+              exit 1
+              ;;
+          esac
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "component=${COMPONENT}" >> $GITHUB_OUTPUT
+          echo "Extracted component: ${COMPONENT}"
+          echo "Extracted version: ${VERSION}"
+
+      - name: Run GoReleaser (Snapshot)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
+        uses: goreleaser/goreleaser-action@v6.4.0
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish --config .github/goreleaser.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
+          BUILD_COMPONENT: ${{ steps.version.outputs.component }}
+
+      - name: Run GoReleaser (Release)
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'false')
+        uses: goreleaser/goreleaser-action@v6.4.0
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean --config .github/goreleaser.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
+          BUILD_COMPONENT: ${{ steps.version.outputs.component }}
+
+      - name: Attest Build Provenance
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'false')
+        uses: actions/attest-build-provenance@v3.0.0
+        with:
+          subject-path: "dist/**/*.tar.gz"
+
+      - name: Upload Snapshot Artifacts
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: snapshot-${{ steps.version.outputs.component }}-${{ steps.version.outputs.version }}
+          path: dist/*
+          retention-days: 7

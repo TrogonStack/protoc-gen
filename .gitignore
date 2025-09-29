@@ -34,3 +34,6 @@ go.work.sum
 # Generated protoc plugin binaries (root directory only)
 /protoc-gen-*
 /protoc-gen-*.wasm
+
+# GoReleaser artifacts
+dist/
