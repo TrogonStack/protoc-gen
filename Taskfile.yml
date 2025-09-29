@@ -69,10 +69,23 @@ tasks:
       - go build ./...
 
   build-plugin:
-    desc: Build the protoc plugin binary
+    desc: Build all protoc plugin binaries
     cmds:
-      - echo "Building protoc plugin binary..."
+      - echo "Building protoc plugin binaries..."
       - go build -o protoc-gen-connect-go-servicestruct ./cmd/protoc-gen-connect-go-servicestruct
+      - go build -o protoc-gen-elixir-grpc ./cmd/protoc-gen-elixir-grpc
+
+  build-plugin-go:
+    desc: Build the Go Connect protoc plugin binary
+    cmds:
+      - echo "Building Go Connect protoc plugin binary..."
+      - go build -o protoc-gen-connect-go-servicestruct ./cmd/protoc-gen-connect-go-servicestruct
+
+  build-plugin-elixir:
+    desc: Build the Elixir gRPC protoc plugin binary
+    cmds:
+      - echo "Building Elixir gRPC protoc plugin binary..."
+      - go build -o protoc-gen-elixir-grpc ./cmd/protoc-gen-elixir-grpc
 
   dev-test:
     desc: Development workflow - fmt, vet, and generate coverage HTML
