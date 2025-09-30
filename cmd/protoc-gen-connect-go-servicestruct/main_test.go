@@ -19,7 +19,9 @@ func TestVersion(t *testing.T) {
 	stdout, stderr, exitCode := testRunProtocGenServiceStruct(t, nil, "--version")
 	assert.Equal(t, "", stderr.String())
 	assert.Equal(t, 0, exitCode)
-	assert.NotEmpty(t, stdout.String())
+	assert.Contains(t, stdout.String(), "protoc-gen-connect-go-servicestruct")
+	assert.Contains(t, stdout.String(), "commit:")
+	assert.Contains(t, stdout.String(), "built:")
 }
 
 func TestGenerate(t *testing.T) {
