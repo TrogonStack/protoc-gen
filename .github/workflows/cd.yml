@@ -126,7 +126,6 @@ jobs:
           args: release --snapshot --clean --skip=publish --config .github/goreleaser.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
           BUILD_COMPONENT: ${{ steps.version.outputs.component }}
 
       - name: Run GoReleaser (Release)
@@ -135,10 +134,9 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean --config .github/goreleaser.yml
+          args: release --clean --skip=validate --config .github/goreleaser.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.version }}
           BUILD_COMPONENT: ${{ steps.version.outputs.component }}
 
       - name: Attest Build Provenance
