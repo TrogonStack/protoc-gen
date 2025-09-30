@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.1.0...protoc-gen-elixir-grpc@v0.2.0) (2025-09-30)
+
+
+### Features
+
+* Add version ldflags support to both protoc plugins ([#14](https://github.com/TrogonStack/protoc-gen/issues/14)) ([43d354a](https://github.com/TrogonStack/protoc-gen/commit/43d354a99cd9d2ca091d29e74acc7214720b1201))
+
 ## 0.1.0 (2025-09-29)
 
 
