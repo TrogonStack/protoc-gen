@@ -26,34 +26,8 @@ permissions:
   attestations: write
 
 jobs:
-  # Run tests only for manual workflow_dispatch triggers to catch issues during testing.
-  # For actual releases, CI has already validated the code.
-  # TODO: Consider removing workflow_dispatch entirely once the release process is stable.
-  test:
-    name: Run Tests
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5.0.0
-
-      - name: Set up Go
-        uses: actions/setup-go@v6.0.0
-        with:
-          go-version: "1.24"
-
-      - name: Run Tests
-        run: go test -race -v ./...
-
-      - name: Run Vet
-        run: go vet ./...
-
   goreleaser:
     name: Release with GoReleaser
-    needs: test
-    if: |
-      always() &&
-      (needs.test.result == 'success' || needs.test.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
