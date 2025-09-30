@@ -35,10 +35,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	connect "connectrpc.com/connect"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
+)
+
+var (
+	// These variables are set by ldflags during build time
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
 )
 
 const (
@@ -56,9 +62,7 @@ const (
 
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		if _, err := fmt.Fprintln(os.Stdout, connect.Version); err != nil {
-			os.Exit(1)
-		}
+		fmt.Printf("protoc-gen-connect-go-servicestruct %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	}
 	if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help") {

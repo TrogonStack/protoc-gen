@@ -19,7 +19,9 @@ func TestVersion(t *testing.T) {
 	stdout, stderr, exitCode := testRunProtocGenElixirGrpc(t, nil, "--version")
 	assert.Equal(t, "", stderr.String())
 	assert.Equal(t, 0, exitCode)
-	assert.Equal(t, "1.0.0\n", stdout.String())
+	assert.Contains(t, stdout.String(), "protoc-gen-elixir-grpc")
+	assert.Contains(t, stdout.String(), "commit:")
+	assert.Contains(t, stdout.String(), "built:")
 }
 
 func TestHelp(t *testing.T) {
