@@ -47,8 +47,7 @@ defmodule Helloworld.Greeter.Server.SayHelloHandler do
     # Your business logic with dependencies
     case MyApp.Users.get_user_by_name(request.name) do
       {:ok, user} -> 
-        reply = %Helloworld.HelloReply{message: "Hello #{user.display_name}!"}
-        {:ok, reply}
+        %Helloworld.HelloReply{message: "Hello #{user.display_name}!"}
       {:error, :not_found} ->
         raise GRPC.RPCError, status: :not_found, message: "User not found"
     end
@@ -60,8 +59,7 @@ defmodule Helloworld.Greeter.Server.SayGoodbyeHandler do
   def handle_message(request, _stream) do
     case MyApp.Users.log_goodbye(request.name) do
       :ok ->
-        reply = %Helloworld.GoodbyeReply{message: "Goodbye #{request.name}!"}
-        {:ok, reply}
+        %Helloworld.GoodbyeReply{message: "Goodbye #{request.name}!"}
       {:error, reason} ->
         raise GRPC.RPCError, status: :internal, message: "Failed to log goodbye: #{reason}"
     end
@@ -81,6 +79,7 @@ protobuf plugin.
 ### Features
 
 - **Handler Delegation**: Uses `defdelegate` to separate transport concerns from business logic
+- **Type Specifications**: Generates `@spec` annotations for all RPC methods with proper types
 - **Clean Organization**: Each RPC method gets its own dedicated handler module  
 - **Streaming Support**: Handles all gRPC method types automatically
 - **Package Structure**: Maintains protobuf package hierarchy in generated modules

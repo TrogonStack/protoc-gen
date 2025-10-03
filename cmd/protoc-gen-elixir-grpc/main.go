@@ -223,6 +223,24 @@ func generateMethodDelegate(content *strings.Builder, file *descriptorpb.FileDes
 	isStreamingClient := method.GetClientStreaming()
 	isStreamingServer := method.GetServerStreaming()
 
+	// Generate @spec
+	requestType := protoTypeToElixirModule(method.GetInputType(), file)
+	responseType := protoTypeToElixirModule(method.GetOutputType(), file)
+
+	var typeSpec string
+	switch {
+	case isStreamingClient && isStreamingServer:
+		typeSpec = fmt.Sprintf("  @spec %s(request_stream :: Enum.t(), response_stream :: Enum.t()) :: any()", methodName)
+	case isStreamingClient && !isStreamingServer:
+		typeSpec = fmt.Sprintf("  @spec %s(request_stream :: Enum.t(), stream :: GRPC.Server.Stream.t()) :: %s.t()", methodName, responseType)
+	case !isStreamingClient && isStreamingServer:
+		typeSpec = fmt.Sprintf("  @spec %s(request :: %s.t(), response_stream :: Enum.t()) :: any()", methodName, requestType)
+	default:
+		typeSpec = fmt.Sprintf("  @spec %s(request :: %s.t(), stream :: GRPC.Server.Stream.t()) :: %s.t()", methodName, requestType, responseType)
+	}
+
+	content.WriteString(typeSpec + "\n")
+
 	var signature string
 	switch {
 	case isStreamingClient && isStreamingServer:
@@ -235,7 +253,9 @@ func generateMethodDelegate(content *strings.Builder, file *descriptorpb.FileDes
 		signature = fmt.Sprintf("%s(request, stream)", methodName)
 	}
 
-	content.WriteString("  defdelegate " + signature + ", to: " + handlerModuleName + ", as: :handle_message\n")
+	content.WriteString("  defdelegate " + signature + ",\n")
+	content.WriteString("    to: " + handlerModuleName + ",\n")
+	content.WriteString("    as: :handle_message\n\n")
 }
 
 func generateServiceModuleName(file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto) string {
@@ -350,4 +370,26 @@ func toPascalCase(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// protoTypeToElixirModule converts a protobuf type reference (e.g., ".greeter.v1.HelloRequest")
+// to an Elixir module name (e.g., "Greeter.V1.HelloRequest")
+func protoTypeToElixirModule(protoType string, file *descriptorpb.FileDescriptorProto) string {
+	// Remove leading dot if present
+	protoType = strings.TrimPrefix(protoType, ".")
+
+	if protoType == "" {
+		return ""
+	}
+
+	// Split the type into parts
+	parts := strings.Split(protoType, ".")
+
+	// Convert each part to PascalCase
+	var elixirParts []string
+	for _, part := range parts {
+		elixirParts = append(elixirParts, toPascalCase(part))
+	}
+
+	return strings.Join(elixirParts, ".")
 }
