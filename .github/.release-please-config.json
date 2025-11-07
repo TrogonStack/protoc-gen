@@ -8,7 +8,7 @@
   "pull-request-header": "An automated release has been created for you.",
   "tag-separator": "@",
   "separate-pull-requests": true,
-  "signoff": "Straw Hat, LLC <opensource@straw-hat-llc.com>",
+  "signoff": "Straw Hat Team Bot <61149376+sht-bot@users.noreply.github.com>",
   "changelog-sections": [
     {
       "type": "feat",
