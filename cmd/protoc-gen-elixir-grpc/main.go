@@ -53,8 +53,9 @@ const (
 	defaultPackagePrefix    = ""
 	packagePrefixFlag       = "package_prefix"
 	handlerModulePrefixFlag = "handler_module_prefix"
+	httpTranscodeFlag       = "http_transcode"
 
-	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package."
+	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server)."
 )
 
 func parsePluginParameters(paramStr string, flagSet *flag.FlagSet) error {
@@ -111,6 +112,11 @@ func main() {
 		"",
 		"Custom Elixir module prefix for handler modules instead of protobuf package (e.g., 'MyApp.Handlers').",
 	)
+	httpTranscode := flagSet.Bool(
+		httpTranscodeFlag,
+		false,
+		"Enable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).",
+	)
 
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -162,7 +168,7 @@ func main() {
 			continue
 		}
 
-		generateElixirFile(resp, protoFile, *packagePrefix, *handlerModulePrefix)
+		generateElixirFile(resp, protoFile, *packagePrefix, *handlerModulePrefix, *httpTranscode)
 	}
 
 	output, err := proto.Marshal(resp)
@@ -177,7 +183,7 @@ func main() {
 	}
 }
 
-func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb.FileDescriptorProto, packagePrefix, handlerModulePrefix string) {
+func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb.FileDescriptorProto, packagePrefix, handlerModulePrefix string, httpTranscode bool) {
 	if len(file.Service) == 0 {
 		return
 	}
@@ -191,7 +197,7 @@ func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb
 	content.WriteString("\n")
 
 	for _, service := range file.Service {
-		generateServiceModule(&content, file, service, handlerModulePrefix)
+		generateServiceModule(&content, file, service, handlerModulePrefix, httpTranscode)
 		content.WriteString("\n")
 	}
 
@@ -201,13 +207,16 @@ func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb
 	})
 }
 
-func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, handlerModulePrefix string) {
+func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, handlerModulePrefix string, httpTranscode bool) {
 	serverModuleName := generateServerModuleName(file, service)
 	serviceModuleName := generateServiceModuleName(file, service)
 
 	content.WriteString("defmodule " + serverModuleName + " do\n")
-	content.WriteString("  use GRPC.Server, service: " + serviceModuleName + "\n")
-	content.WriteString("\n")
+	content.WriteString("  use GRPC.Server, service: " + serviceModuleName)
+	if httpTranscode {
+		content.WriteString(", http_transcode: true")
+	}
+	content.WriteString("\n\n")
 
 	for _, method := range service.Method {
 		generateMethodDelegate(content, file, service, method, handlerModulePrefix)
