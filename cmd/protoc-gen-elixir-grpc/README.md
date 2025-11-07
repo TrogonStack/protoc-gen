@@ -35,6 +35,66 @@ plugins:
 
 Server modules are generated into the same directory structure as the protobuf definitions, with `.server.pb.ex` suffix.
 
+### Configuration Options
+
+You can configure the plugin using parameters:
+
+#### HTTP Transcoding
+
+Enable HTTP/JSON transcoding support for your gRPC services:
+
+```yaml
+version: v2
+plugins:
+  - local: protoc-gen-elixir
+    out: lib
+  - local: protoc-gen-elixir-grpc
+    out: lib
+    opt:
+      - http_transcode=true
+```
+
+This generates:
+
+```elixir
+defmodule Greeter.Server do
+  use GRPC.Server, service: Greeter.Service, http_transcode: true
+  
+  # ... method delegates
+end
+```
+
+#### Custom Handler Module Prefix
+
+Organize handlers under a custom module prefix instead of using the protobuf package:
+
+```yaml
+version: v2
+plugins:
+  - local: protoc-gen-elixir
+    out: lib
+  - local: protoc-gen-elixir-grpc
+    out: lib
+    opt:
+      - handler_module_prefix=MyApp.Handlers
+```
+
+#### Combining Options
+
+You can combine multiple options:
+
+```yaml
+version: v2
+plugins:
+  - local: protoc-gen-elixir
+    out: lib
+  - local: protoc-gen-elixir-grpc
+    out: lib
+    opt:
+      - http_transcode=true
+      - handler_module_prefix=MyApp.Handlers
+```
+
 ### Basic Service Implementation
 
 For more realistic applications that require dependencies like database connections, implement handlers 
