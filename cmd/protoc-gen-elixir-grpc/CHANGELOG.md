@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.2.0...protoc-gen-elixir-grpc@v0.3.0) (2025-11-08)
+
+
+### Features
+
+* Add HTTP transcoding support and update tests ([#23](https://github.com/TrogonStack/protoc-gen/issues/23)) ([2ab8496](https://github.com/TrogonStack/protoc-gen/commit/2ab84965bec80cc6b34d8c1cf271c9f03952869d))
+* Add support for custom codecs in gRPC server configuration ([#26](https://github.com/TrogonStack/protoc-gen/issues/26)) ([c14c47b](https://github.com/TrogonStack/protoc-gen/commit/c14c47bfbe64893a7ea6327b83b3b3c01950adb8))
+* Add support for custom compressors in gRPC server configuration ([#27](https://github.com/TrogonStack/protoc-gen/issues/27)) ([7ecda53](https://github.com/TrogonStack/protoc-gen/commit/7ecda5391eddbdd977ff81f895b1042484614224))
+
 ## [0.2.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.1.0...protoc-gen-elixir-grpc@v0.2.0) (2025-09-30)
 
 
