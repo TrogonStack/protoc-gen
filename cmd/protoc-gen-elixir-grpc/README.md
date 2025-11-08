@@ -58,7 +58,9 @@ This generates:
 
 ```elixir
 defmodule Greeter.Server do
-  use GRPC.Server, service: Greeter.Service, http_transcode: true
+  use GRPC.Server,
+    service: Greeter.Service,
+    http_transcode: true
   
   # ... method delegates
 end
@@ -79,6 +81,33 @@ plugins:
       - handler_module_prefix=MyApp.Handlers
 ```
 
+#### Custom Codecs
+
+Specify custom codec modules for your gRPC server:
+
+```yaml
+version: v2
+plugins:
+  - local: protoc-gen-elixir
+    out: lib
+  - local: protoc-gen-elixir-grpc
+    out: lib
+    opt:
+      - codecs=GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON
+```
+
+This generates:
+
+```elixir
+defmodule Greeter.Server do
+  use GRPC.Server,
+    service: Greeter.Service,
+    codecs: [GRPC.Codec.Proto, GRPC.Codec.WebText, GRPC.Codec.JSON]
+  
+  # ... method delegates
+end
+```
+
 #### Combining Options
 
 You can combine multiple options:
@@ -93,6 +122,7 @@ plugins:
     opt:
       - http_transcode=true
       - handler_module_prefix=MyApp.Handlers
+      - codecs=GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON
 ```
 
 ### Basic Service Implementation

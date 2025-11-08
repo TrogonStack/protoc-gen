@@ -54,8 +54,9 @@ const (
 	packagePrefixFlag       = "package_prefix"
 	handlerModulePrefixFlag = "handler_module_prefix"
 	httpTranscodeFlag       = "http_transcode"
+	codecsFlag              = "codecs"
 
-	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server)."
+	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).\n      --codecs\tComma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON')."
 )
 
 func parsePluginParameters(paramStr string, flagSet *flag.FlagSet) error {
@@ -63,24 +64,79 @@ func parsePluginParameters(paramStr string, flagSet *flag.FlagSet) error {
 		return nil
 	}
 
-	params := strings.Split(paramStr, ",")
-	for _, param := range params {
-		param = strings.TrimSpace(param)
-		if param == "" {
-			continue
-		}
-
-		parts := strings.SplitN(param, "=", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid parameter format: %q, expected key=value", param)
-		}
-
-		if err := flagSet.Set(parts[0], parts[1]); err != nil {
+	// Parse key=value pairs, handling values that may contain commas
+	params := parseKeyValuePairs(paramStr)
+	for key, value := range params {
+		if err := flagSet.Set(key, value); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// parseKeyValuePairs parses a comma-separated list of key=value pairs.
+// It handles the special case where a value may contain commas (e.g., codecs=A,B,C).
+// The parser works by splitting on commas, then checking if each segment is a valid key=value pair.
+// If not, it's assumed to be a continuation of the previous value.
+func parseKeyValuePairs(paramStr string) map[string]string {
+	result := make(map[string]string)
+
+	segments := strings.Split(paramStr, ",")
+	var currentKey string
+	var currentValue strings.Builder
+
+	for _, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		if segment == "" {
+			continue
+		}
+
+		// Check if this segment contains an '=' sign
+		if idx := strings.Index(segment, "="); idx > 0 {
+			// This is a new key=value pair
+			// Save the previous key-value if exists
+			if currentKey != "" {
+				result[currentKey] = currentValue.String()
+			}
+
+			// Start new key-value
+			currentKey = strings.TrimSpace(segment[:idx])
+			valueStart := strings.TrimSpace(segment[idx+1:])
+			currentValue.Reset()
+			currentValue.WriteString(valueStart)
+		} else {
+			// This is a continuation of the current value
+			if currentKey != "" {
+				currentValue.WriteString(",")
+				currentValue.WriteString(segment)
+			}
+		}
+	}
+
+	// Save the final key-value pair if it exists
+	if currentKey != "" {
+		result[currentKey] = currentValue.String()
+	}
+
+	return result
+}
+
+func parseCodecs(codecsStr string) []string {
+	if codecsStr == "" {
+		return nil
+	}
+
+	codecs := strings.Split(codecsStr, ",")
+	var result []string
+	for _, codec := range codecs {
+		codec = strings.TrimSpace(codec)
+		if codec != "" {
+			result = append(result, codec)
+		}
+	}
+
+	return result
 }
 
 func main() {
@@ -117,6 +173,11 @@ func main() {
 		false,
 		"Enable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).",
 	)
+	codecs := flagSet.String(
+		codecsFlag,
+		"",
+		"Comma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON').",
+	)
 
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -152,6 +213,8 @@ func main() {
 		SupportedFeatures: proto.Uint64(uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)),
 	}
 
+	codecsList := parseCodecs(*codecs)
+
 	for _, fileName := range req.FileToGenerate {
 		var protoFile *descriptorpb.FileDescriptorProto
 		for _, file := range req.ProtoFile {
@@ -168,7 +231,7 @@ func main() {
 			continue
 		}
 
-		generateElixirFile(resp, protoFile, *packagePrefix, *handlerModulePrefix, *httpTranscode)
+		generateElixirFile(resp, protoFile, *packagePrefix, *handlerModulePrefix, *httpTranscode, codecsList)
 	}
 
 	output, err := proto.Marshal(resp)
@@ -183,7 +246,7 @@ func main() {
 	}
 }
 
-func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb.FileDescriptorProto, packagePrefix, handlerModulePrefix string, httpTranscode bool) {
+func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb.FileDescriptorProto, packagePrefix, handlerModulePrefix string, httpTranscode bool, codecs []string) {
 	if len(file.Service) == 0 {
 		return
 	}
@@ -197,7 +260,7 @@ func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb
 	content.WriteString("\n")
 
 	for _, service := range file.Service {
-		generateServiceModule(&content, file, service, handlerModulePrefix, httpTranscode)
+		generateServiceModule(&content, file, service, handlerModulePrefix, httpTranscode, codecs)
 		content.WriteString("\n")
 	}
 
@@ -207,14 +270,25 @@ func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb
 	})
 }
 
-func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, handlerModulePrefix string, httpTranscode bool) {
+func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, handlerModulePrefix string, httpTranscode bool, codecs []string) {
 	serverModuleName := generateServerModuleName(file, service)
 	serviceModuleName := generateServiceModuleName(file, service)
 
 	content.WriteString("defmodule " + serverModuleName + " do\n")
-	content.WriteString("  use GRPC.Server, service: " + serviceModuleName)
+	content.WriteString("  use GRPC.Server,\n")
+	content.WriteString("    service: " + serviceModuleName)
 	if httpTranscode {
-		content.WriteString(", http_transcode: true")
+		content.WriteString(",\n    http_transcode: true")
+	}
+	if len(codecs) > 0 {
+		content.WriteString(",\n    codecs: [")
+		for i, codec := range codecs {
+			if i > 0 {
+				content.WriteString(", ")
+			}
+			content.WriteString(codec)
+		}
+		content.WriteString("]")
 	}
 	content.WriteString("\n\n")
 
