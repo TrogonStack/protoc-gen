@@ -108,6 +108,33 @@ defmodule Greeter.Server do
 end
 ```
 
+#### Custom Compressors
+
+Specify custom compressor modules for your gRPC server:
+
+```yaml
+version: v2
+plugins:
+  - local: protoc-gen-elixir
+    out: lib
+  - local: protoc-gen-elixir-grpc
+    out: lib
+    opt:
+      - compressors=GRPC.Compressor.Gzip
+```
+
+This generates:
+
+```elixir
+defmodule Greeter.Server do
+  use GRPC.Server,
+    service: Greeter.Service,
+    compressors: [GRPC.Compressor.Gzip]
+  
+  # ... method delegates
+end
+```
+
 #### Combining Options
 
 You can combine multiple options:
@@ -123,6 +150,7 @@ plugins:
       - http_transcode=true
       - handler_module_prefix=MyApp.Handlers
       - codecs=GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON
+      - compressors=GRPC.Compressor.Gzip
 ```
 
 ### Basic Service Implementation
