@@ -55,8 +55,9 @@ const (
 	handlerModulePrefixFlag = "handler_module_prefix"
 	httpTranscodeFlag       = "http_transcode"
 	codecsFlag              = "codecs"
+	compressorsFlag         = "compressors"
 
-	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).\n      --codecs\tComma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON')."
+	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).\n      --codecs\tComma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON').\n      --compressors\tComma-separated list of compressor modules (e.g., 'GRPC.Compressor.Gzip')."
 )
 
 func parsePluginParameters(paramStr string, flagSet *flag.FlagSet) error {
@@ -178,6 +179,11 @@ func main() {
 		"",
 		"Comma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON').",
 	)
+	compressors := flagSet.String(
+		compressorsFlag,
+		"",
+		"Comma-separated list of compressor modules (e.g., 'GRPC.Compressor.Gzip').",
+	)
 
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -214,6 +220,7 @@ func main() {
 	}
 
 	codecsList := parseCodecs(*codecs)
+	compressorsList := parseCodecs(*compressors)
 
 	for _, fileName := range req.FileToGenerate {
 		var protoFile *descriptorpb.FileDescriptorProto
@@ -231,7 +238,7 @@ func main() {
 			continue
 		}
 
-		generateElixirFile(resp, protoFile, *packagePrefix, *handlerModulePrefix, *httpTranscode, codecsList)
+		generateElixirFile(resp, protoFile, *packagePrefix, *handlerModulePrefix, *httpTranscode, codecsList, compressorsList)
 	}
 
 	output, err := proto.Marshal(resp)
@@ -246,7 +253,7 @@ func main() {
 	}
 }
 
-func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb.FileDescriptorProto, packagePrefix, handlerModulePrefix string, httpTranscode bool, codecs []string) {
+func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb.FileDescriptorProto, packagePrefix, handlerModulePrefix string, httpTranscode bool, codecs []string, compressors []string) {
 	if len(file.Service) == 0 {
 		return
 	}
@@ -260,7 +267,7 @@ func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb
 	content.WriteString("\n")
 
 	for _, service := range file.Service {
-		generateServiceModule(&content, file, service, handlerModulePrefix, httpTranscode, codecs)
+		generateServiceModule(&content, file, service, handlerModulePrefix, httpTranscode, codecs, compressors)
 		content.WriteString("\n")
 	}
 
@@ -270,7 +277,7 @@ func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb
 	})
 }
 
-func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, handlerModulePrefix string, httpTranscode bool, codecs []string) {
+func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, handlerModulePrefix string, httpTranscode bool, codecs []string, compressors []string) {
 	serverModuleName := generateServerModuleName(file, service)
 	serviceModuleName := generateServiceModuleName(file, service)
 
@@ -287,6 +294,16 @@ func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDesc
 				content.WriteString(", ")
 			}
 			content.WriteString(codec)
+		}
+		content.WriteString("]")
+	}
+	if len(compressors) > 0 {
+		content.WriteString(",\n    compressors: [")
+		for i, compressor := range compressors {
+			if i > 0 {
+				content.WriteString(", ")
+			}
+			content.WriteString(compressor)
 		}
 		content.WriteString("]")
 	}
