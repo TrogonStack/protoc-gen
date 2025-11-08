@@ -326,8 +326,13 @@ func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDesc
 	}
 	content.WriteString("\n\n")
 
-	for _, method := range service.Method {
+	lastMethodIndex := len(service.Method) - 1
+	for i, method := range service.Method {
 		generateMethodDelegate(content, file, service, method, opts)
+		// Add blank line between delegates, but not after the last one
+		if i < lastMethodIndex {
+			content.WriteString("\n")
+		}
 	}
 
 	content.WriteString("end")
@@ -352,7 +357,9 @@ func generateMethodDelegate(content *strings.Builder, file *descriptorpb.FileDes
 		signature = fmt.Sprintf("%s(request, stream)", methodName)
 	}
 
-	content.WriteString("  defdelegate " + signature + ", to: " + handlerModuleName + ", as: :handle_message\n")
+	content.WriteString("  defdelegate " + signature + ",\n")
+	content.WriteString("    to: " + handlerModuleName + ",\n")
+	content.WriteString("    as: :handle_message\n")
 }
 
 func generateServiceModuleName(file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto) string {

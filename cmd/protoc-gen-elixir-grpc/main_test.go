@@ -113,10 +113,21 @@ defmodule Greeter.V1.GreeterService.Server do
   use GRPC.Server,
     service: Greeter.V1.GreeterService.Service
 
-  defdelegate say_hello(request, stream), to: Greeter.V1.GreeterService.Server.SayHelloHandler, as: :handle_message
-  defdelegate say_hello_stream(request, response_stream), to: Greeter.V1.GreeterService.Server.SayHelloStreamHandler, as: :handle_message
-  defdelegate say_hello_client_stream(request_stream, stream), to: Greeter.V1.GreeterService.Server.SayHelloClientStreamHandler, as: :handle_message
-  defdelegate say_hello_bidi_stream(request_stream, response_stream), to: Greeter.V1.GreeterService.Server.SayHelloBidiStreamHandler, as: :handle_message
+  defdelegate say_hello(request, stream),
+    to: Greeter.V1.GreeterService.Server.SayHelloHandler,
+    as: :handle_message
+
+  defdelegate say_hello_stream(request, response_stream),
+    to: Greeter.V1.GreeterService.Server.SayHelloStreamHandler,
+    as: :handle_message
+
+  defdelegate say_hello_client_stream(request_stream, stream),
+    to: Greeter.V1.GreeterService.Server.SayHelloClientStreamHandler,
+    as: :handle_message
+
+  defdelegate say_hello_bidi_stream(request_stream, response_stream),
+    to: Greeter.V1.GreeterService.Server.SayHelloBidiStreamHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -168,7 +179,9 @@ defmodule Auth.V1.AuthService.Server do
   use GRPC.Server,
     service: Auth.V1.AuthService.Service
 
-  defdelegate login(request, stream), to: MyApp.Handlers.Auth.V1.AuthService.Server.LoginHandler, as: :handle_message
+  defdelegate login(request, stream),
+    to: MyApp.Handlers.Auth.V1.AuthService.Server.LoginHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -221,7 +234,9 @@ defmodule Api.V1.ApiService.Server do
     service: Api.V1.ApiService.Service,
     http_transcode: true
 
-  defdelegate get(request, stream), to: Api.V1.ApiService.Server.GetHandler, as: :handle_message
+  defdelegate get(request, stream),
+    to: Api.V1.ApiService.Server.GetHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -273,7 +288,9 @@ defmodule User.V1.UserService.Server do
   use GRPC.Server,
     service: User.V1.UserService.Service
 
-  defdelegate get_user(request, stream), to: User.V1.UserService.Server.GetUserHandler, as: :handle_message
+  defdelegate get_user(request, stream),
+    to: User.V1.UserService.Server.GetUserHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -325,7 +342,9 @@ defmodule Billing.V1.BillingService.Server do
   use GRPC.Server,
     service: Billing.V1.BillingService.Service
 
-  defdelegate create_invoice(request, stream), to: MyApp.BusinessLogic.Billing.V1.BillingService.Server.CreateInvoiceHandler, as: :handle_message
+  defdelegate create_invoice(request, stream),
+    to: MyApp.BusinessLogic.Billing.V1.BillingService.Server.CreateInvoiceHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -378,7 +397,9 @@ defmodule Payment.V1.PaymentService.Server do
     service: Payment.V1.PaymentService.Service,
     http_transcode: true
 
-  defdelegate process_payment(request, stream), to: MyApp.Core.Payment.V1.PaymentService.Server.ProcessPaymentHandler, as: :handle_message
+  defdelegate process_payment(request, stream),
+    to: MyApp.Core.Payment.V1.PaymentService.Server.ProcessPaymentHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -431,7 +452,9 @@ defmodule Data.V1.DataService.Server do
     service: Data.V1.DataService.Service,
     codecs: [GRPC.Codec.Proto, GRPC.Codec.WebText, GRPC.Codec.JSON]
 
-  defdelegate get_data(request, stream), to: Data.V1.DataService.Server.GetDataHandler, as: :handle_message
+  defdelegate get_data(request, stream),
+    to: Data.V1.DataService.Server.GetDataHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -484,7 +507,9 @@ defmodule Content.V1.ContentService.Server do
     service: Content.V1.ContentService.Service,
     codecs: [GRPC.Codec.Proto, GRPC.Codec.WebText, GRPC.Codec.JSON]
 
-  defdelegate get_content(request, stream), to: Content.V1.ContentService.Server.GetContentHandler, as: :handle_message
+  defdelegate get_content(request, stream),
+    to: Content.V1.ContentService.Server.GetContentHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -537,7 +562,9 @@ defmodule Data.V1.DataService.Server do
     service: Data.V1.DataService.Service,
     compressors: [GRPC.Compressor.Gzip]
 
-  defdelegate get_data(request, stream), to: Data.V1.DataService.Server.GetDataHandler, as: :handle_message
+  defdelegate get_data(request, stream),
+    to: Data.V1.DataService.Server.GetDataHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -592,7 +619,9 @@ defmodule Store.V1.StoreService.Server do
     codecs: [GRPC.Codec.Proto, GRPC.Codec.JSON],
     compressors: [GRPC.Compressor.Gzip]
 
-  defdelegate create_store(request, stream), to: MyApp.Business.Store.V1.StoreService.Server.CreateStoreHandler, as: :handle_message
+  defdelegate create_store(request, stream),
+    to: MyApp.Business.Store.V1.StoreService.Server.CreateStoreHandler,
+    as: :handle_message
 end
 `
 			assert.Equal(t, expected, content)
@@ -682,13 +711,17 @@ defmodule Test.V1.UserService.Server do
   use GRPC.Server,
     service: Test.V1.UserService.Service
 
-  defdelegate create_user(request, stream), to: Test.V1.UserService.Server.CreateUserHandler, as: :handle_message
+  defdelegate create_user(request, stream),
+    to: Test.V1.UserService.Server.CreateUserHandler,
+    as: :handle_message
 end
 defmodule Test.V1.ProductService.Server do
   use GRPC.Server,
     service: Test.V1.ProductService.Service
 
-  defdelegate create_product(request, stream), to: Test.V1.ProductService.Server.CreateProductHandler, as: :handle_message
+  defdelegate create_product(request, stream),
+    to: Test.V1.ProductService.Server.CreateProductHandler,
+    as: :handle_message
 end
 `
 		assert.Equal(t, expected, content)
@@ -740,7 +773,9 @@ defmodule SimpleService.Server do
   use GRPC.Server,
     service: SimpleService.Service
 
-  defdelegate do_something(request, stream), to: SimpleService.Server.DoSomethingHandler, as: :handle_message
+  defdelegate do_something(request, stream),
+    to: SimpleService.Server.DoSomethingHandler,
+    as: :handle_message
 end
 `
 		assert.Equal(t, expected, content)
