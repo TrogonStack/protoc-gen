@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.3.0...protoc-gen-elixir-grpc@v0.4.0) (2025-12-20)
+
+
+### Features
+
+* **protoc-gen-elixir-grpc:** Add server_module_prefix option ([#33](https://github.com/TrogonStack/protoc-gen/issues/33)) ([e506d5d](https://github.com/TrogonStack/protoc-gen/commit/e506d5d3bd74175dd366b51e85f6b1070eaaeda2))
+
 ## [0.3.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.2.0...protoc-gen-elixir-grpc@v0.3.0) (2025-11-08)
 
 
