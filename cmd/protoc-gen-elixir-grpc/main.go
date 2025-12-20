@@ -48,22 +48,24 @@ var (
 )
 
 const (
-	filenameSuffix          = ".ex"
-	serverSuffix            = "Server"
-	defaultPackagePrefix    = ""
-	packagePrefixFlag       = "package_prefix"
-	handlerModulePrefixFlag = "handler_module_prefix"
-	httpTranscodeFlag       = "http_transcode"
-	codecsFlag              = "codecs"
-	compressorsFlag         = "compressors"
+	filenameSuffix           = ".ex"
+	serverSuffix             = "Server"
+	defaultPackagePrefix     = ""
+	packagePrefixFlag        = "package_prefix"
+	handlerModulePrefixFlag  = "handler_module_prefix"
+	serverModulePrefixFlag   = "server_module_prefix"
+	httpTranscodeFlag        = "http_transcode"
+	codecsFlag               = "codecs"
+	compressorsFlag          = "compressors"
 
-	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).\n      --codecs\tComma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON').\n      --compressors\tComma-separated list of compressor modules (e.g., 'GRPC.Compressor.Gzip')."
+	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --server_module_prefix\tCustom Elixir module prefix for server modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).\n      --codecs\tComma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON').\n      --compressors\tComma-separated list of compressor modules (e.g., 'GRPC.Compressor.Gzip')."
 )
 
 // GenerateOptions contains configuration options for generating Elixir gRPC files
 type GenerateOptions struct {
 	PackagePrefix       string
 	HandlerModulePrefix string
+	ServerModulePrefix  string
 	HTTPTranscode       bool
 	Codecs              []string
 	Compressors         []string
@@ -178,6 +180,11 @@ func main() {
 		"",
 		"Custom Elixir module prefix for handler modules instead of protobuf package (e.g., 'MyApp.Handlers').",
 	)
+	serverModulePrefix := flagSet.String(
+		serverModulePrefixFlag,
+		"",
+		"Custom Elixir module prefix for server modules instead of protobuf package (e.g., 'MyApp.Servers').",
+	)
 	httpTranscode := flagSet.Bool(
 		httpTranscodeFlag,
 		false,
@@ -234,6 +241,7 @@ func main() {
 	opts := GenerateOptions{
 		PackagePrefix:       *packagePrefix,
 		HandlerModulePrefix: *handlerModulePrefix,
+		ServerModulePrefix:  *serverModulePrefix,
 		HTTPTranscode:       *httpTranscode,
 		Codecs:              codecsList,
 		Compressors:         compressorsList,
@@ -295,7 +303,7 @@ func generateElixirFile(resp *pluginpb.CodeGeneratorResponse, file *descriptorpb
 }
 
 func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, opts GenerateOptions) {
-	serverModuleName := generateServerModuleName(file, service)
+	serverModuleName := generateServerModuleName(file, service, opts)
 	serviceModuleName := generateServiceModuleName(file, service)
 
 	content.WriteString("defmodule " + serverModuleName + " do\n")
@@ -362,6 +370,18 @@ func generateMethodDelegate(content *strings.Builder, file *descriptorpb.FileDes
 	content.WriteString("    as: :handle_message\n")
 }
 
+func packageToPascalParts(pkg string) []string {
+	if pkg == "" {
+		return []string{}
+	}
+	parts := strings.Split(pkg, ".")
+	result := make([]string, len(parts))
+	for i, part := range parts {
+		result[i] = toPascalCase(part)
+	}
+	return result
+}
+
 func generateServiceModuleName(file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto) string {
 	serviceName := service.GetName()
 	pkg := file.GetPackage()
@@ -370,50 +390,42 @@ func generateServiceModuleName(file *descriptorpb.FileDescriptorProto, service *
 		return toPascalCase(serviceName) + ".Service"
 	}
 
-	parts := strings.Split(pkg, ".")
-	var elixirParts []string
-	for _, part := range parts {
-		elixirParts = append(elixirParts, toPascalCase(part))
-	}
+	parts := packageToPascalParts(pkg)
+	parts = append(parts, toPascalCase(serviceName), "Service")
 
-	elixirParts = append(elixirParts, toPascalCase(serviceName), "Service")
-
-	return strings.Join(elixirParts, ".")
+	return strings.Join(parts, ".")
 }
 
-func generateServerModuleName(file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto) string {
+func generateServerModuleName(file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, opts GenerateOptions) string {
 	serviceName := service.GetName()
 	pkg := file.GetPackage()
+	packageParts := packageToPascalParts(pkg)
+
+	if opts.ServerModulePrefix != "" {
+		if pkg == "" {
+			return fmt.Sprintf("%s.%s.%s", opts.ServerModulePrefix, toPascalCase(serviceName), serverSuffix)
+		}
+
+		return fmt.Sprintf("%s.%s.%s.%s", opts.ServerModulePrefix, strings.Join(packageParts, "."), toPascalCase(serviceName), serverSuffix)
+	}
 
 	if pkg == "" {
 		return toPascalCase(serviceName) + "." + serverSuffix
 	}
 
-	parts := strings.Split(pkg, ".")
-	var elixirParts []string
-	for _, part := range parts {
-		elixirParts = append(elixirParts, toPascalCase(part))
-	}
-
-	elixirParts = append(elixirParts, toPascalCase(serviceName), serverSuffix)
-
-	return strings.Join(elixirParts, ".")
+	packageParts = append(packageParts, toPascalCase(serviceName), serverSuffix)
+	return strings.Join(packageParts, ".")
 }
 
 func generateHandlerModuleName(file *descriptorpb.FileDescriptorProto, service *descriptorpb.ServiceDescriptorProto, method *descriptorpb.MethodDescriptorProto, opts GenerateOptions) string {
 	serviceName := service.GetName()
 	methodName := method.GetName()
 	pkg := file.GetPackage()
+	packageParts := packageToPascalParts(pkg)
 
 	if opts.HandlerModulePrefix != "" {
 		if pkg == "" {
 			return fmt.Sprintf("%s.%s.Server.%sHandler", opts.HandlerModulePrefix, toPascalCase(serviceName), toPascalCase(methodName))
-		}
-
-		parts := strings.Split(pkg, ".")
-		var packageParts []string
-		for _, part := range parts {
-			packageParts = append(packageParts, toPascalCase(part))
 		}
 
 		return fmt.Sprintf("%s.%s.%s.Server.%sHandler", opts.HandlerModulePrefix, strings.Join(packageParts, "."), toPascalCase(serviceName), toPascalCase(methodName))
@@ -423,15 +435,9 @@ func generateHandlerModuleName(file *descriptorpb.FileDescriptorProto, service *
 		return fmt.Sprintf("%s.Server.%sHandler", toPascalCase(serviceName), toPascalCase(methodName))
 	}
 
-	parts := strings.Split(pkg, ".")
-	var elixirParts []string
-	for _, part := range parts {
-		elixirParts = append(elixirParts, toPascalCase(part))
-	}
+	packageParts = append(packageParts, toPascalCase(serviceName), "Server", toPascalCase(methodName)+"Handler")
 
-	elixirParts = append(elixirParts, toPascalCase(serviceName), "Server", toPascalCase(methodName)+"Handler")
-
-	return strings.Join(elixirParts, ".")
+	return strings.Join(packageParts, ".")
 }
 
 func generateFilePath(file *descriptorpb.FileDescriptorProto, opts GenerateOptions) string {
