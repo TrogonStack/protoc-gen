@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -333,6 +334,12 @@ func generateServiceModule(content *strings.Builder, file *descriptorpb.FileDesc
 		content.WriteString("]")
 	}
 	content.WriteString("\n\n")
+
+	// Sort methods alphabetically to ensure deterministic output. This prevents
+	// spurious diffs when method definitions are reordered in the proto file.
+	sort.Slice(service.Method, func(i, j int) bool {
+		return service.Method[i].GetName() < service.Method[j].GetName()
+	})
 
 	lastMethodIndex := len(service.Method) - 1
 	for i, method := range service.Method {
