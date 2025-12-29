@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.4.0...protoc-gen-elixir-grpc@v0.4.1) (2025-12-29)
+
+
+### Bug Fixes
+
+* **protoc-gen-elixir-grpc:** Reorder gRPC method ([#35](https://github.com/TrogonStack/protoc-gen/issues/35)) ([29e5c60](https://github.com/TrogonStack/protoc-gen/commit/29e5c604107a8cf1bb6a54717c486101893285e7))
+
 ## [0.4.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.3.0...protoc-gen-elixir-grpc@v0.4.0) (2025-12-20)
 
 
