@@ -486,5 +486,14 @@ func toPascalCase(s string) string {
 	if len(s) == 0 {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+
+	// Split by underscores and capitalize each part
+	parts := strings.Split(s, "_")
+	for i, part := range parts {
+		if len(part) > 0 {
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+
+	return strings.Join(parts, "")
 }
