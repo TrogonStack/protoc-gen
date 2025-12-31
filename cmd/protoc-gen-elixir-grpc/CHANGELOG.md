@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.4.1...protoc-gen-elixir-grpc@v0.4.2) (2025-12-31)
+
+
+### Bug Fixes
+
+* **protoc-gen-elixir-grpc:** Handle underscores in package names for PascalCase conversion ([#37](https://github.com/TrogonStack/protoc-gen/issues/37)) ([dc7878b](https://github.com/TrogonStack/protoc-gen/commit/dc7878bd5fcec62f613442f5939e8b4243c999c5))
+
 ## [0.4.1](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.4.0...protoc-gen-elixir-grpc@v0.4.1) (2025-12-29)
 
 
