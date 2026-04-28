@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -152,13 +151,11 @@ func TestEmptyMessage(t *testing.T) {
 func TestUnsupportedShapesEmitTodo(t *testing.T) {
 	t.Parallel()
 
-	// Repeated string.
 	tags := field("tags", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING)
 	tags.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
 
-	// Real oneof "kind" at OneofIndex 0 — synthetic oneofs for proto3
-	// `optional` must come AFTER real oneofs in OneofDecl, so the real one
-	// is declared first.
+	// Synthetic oneofs (proto3 `optional`) must come AFTER real oneofs in
+	// OneofDecl, so the real "kind" oneof is declared first at index 0.
 	typeA := field("type_a", 4, descriptorpb.FieldDescriptorProto_TYPE_STRING)
 	typeA.OneofIndex = proto.Int32(0)
 	typeB := field("type_b", 5, descriptorpb.FieldDescriptorProto_TYPE_INT32)
@@ -170,11 +167,9 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 	optCount.Proto3Optional = proto.Bool(true)
 	optCount.OneofIndex = proto.Int32(1)
 
-	// Embedded message field.
 	parent := field("parent", 6, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
 	parent.TypeName = proto.String(".zoo.Parent")
 
-	// Enum field.
 	status := field("status", 7, descriptorpb.FieldDescriptorProto_TYPE_ENUM)
 	status.TypeName = proto.String(".zoo.Status")
 
@@ -225,15 +220,13 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 
 	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "zoo.pony")
 
-	// The one supported field stays.
 	assert.Contains(t, out, "let id: I32")
 
-	// Every unsupported shape lays down a TODO and stays out of the constructor.
 	unsupported := []string{"tags", "count", "type_a", "type_b", "parent", "status", "metadata"}
 	for _, name := range unsupported {
 		assert.Contains(t, out, "TODO protoc-gen-pony: field "+name,
 			"missing TODO for %q", name)
-		assert.False(t, strings.Contains(out, name+"': "),
+		assert.NotContains(t, out, name+"': ",
 			"%q should be skipped from the constructor signature", name)
 	}
 }

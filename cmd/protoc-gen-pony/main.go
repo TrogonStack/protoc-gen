@@ -86,12 +86,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "protoc-gen-pony: %v\n", err)
 		os.Exit(1)
 	}
-	// Don't advertise FEATURE_PROTO3_OPTIONAL or FEATURE_SUPPORTS_EDITIONS:
-	// the v1 generator emits TODO comments for explicit-presence/oneof/map/
-	// embedded/enum fields rather than handling them. Advertising support
-	// for features we don't implement risks protoc passing input we'll
-	// silently miscompile. When a future PR lands real codegen for those
-	// shapes, flip the flags back on.
+	// Advertise no features — the v1 generator emits TODO comments for
+	// explicit-presence/oneof/map/embedded/enum fields rather than
+	// handling them. Advertising features we don't implement risks
+	// protoc passing input we'd silently miscompile.
 
 	for _, file := range plugin.Files {
 		if file.Generate {
