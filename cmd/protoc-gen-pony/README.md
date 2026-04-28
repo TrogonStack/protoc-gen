@@ -62,4 +62,4 @@ embedded messages, and enums emit a `// TODO protoc-gen-pony` comment
 until the corresponding codegen lands. Services (gRPC) are out of scope.
 
 [buf]: https://buf.build
-[runtime]: https://github.com/straw-hat-team/trogonai.com/tree/main/mrmeeseeks/protobuf
+[runtime]: https://github.com/TrogonStack/protobuf-pony

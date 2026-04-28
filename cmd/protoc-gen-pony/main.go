@@ -15,9 +15,9 @@
 //	    out: gen
 //
 // Generated files import the `protobuf` runtime library — see
-// https://github.com/straw-hat-team/trogonai.com/tree/main/mrmeeseeks/protobuf
-// for the Pony source. The runtime exposes WireReader/WireWriter, Tag,
-// Scalar, the WireType union, and the WireError typed-error union.
+// https://github.com/TrogonStack/protobuf-pony for the Pony source. The
+// runtime exposes WireReader/WireWriter, Tag, Scalar, the WireType union,
+// and the WireError typed-error union.
 //
 // [buf]: https://buf.build
 package main
