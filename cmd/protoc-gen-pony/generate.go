@@ -54,26 +54,24 @@ func collectAndEmitMessages(g *protogen.GeneratedFile, messages []*protogen.Mess
 }
 
 func emitMessage(g *protogen.GeneratedFile, msg *protogen.Message, className string) {
-	supported, unsupported := classifyFields(msg.Fields)
-
-	emitClass(g, className, msg.Fields, supported, unsupported)
+	supported := supportedFields(msg.Fields)
+	emitClass(g, className, msg.Fields, supported)
 	g.P()
 	emitCodec(g, className, supported)
 	g.P()
 }
 
-func emitClass(g *protogen.GeneratedFile, className string, all []*protogen.Field, supported, unsupported []*protogen.Field) {
+func emitClass(g *protogen.GeneratedFile, className string, all, supported []*protogen.Field) {
 	g.P(`class val `, className)
 	for _, field := range all {
 		if isSupported(field) {
-			g.P(`  let `, fieldName(field), `: `, ponyType(field))
+			g.P(`  let `, field.Desc.Name(), `: `, ponyType(field))
 		} else {
-			g.P(`  // TODO protoc-gen-pony: field `, fieldName(field), ` (`, fieldShape(field), `)`)
+			g.P(`  // TODO protoc-gen-pony: field `, field.Desc.Name(), ` (`, fieldShape(field), `)`)
 		}
 	}
 	g.P()
 	emitConstructor(g, supported)
-	_ = unsupported
 }
 
 func emitConstructor(g *protogen.GeneratedFile, supported []*protogen.Field) {
@@ -87,11 +85,11 @@ func emitConstructor(g *protogen.GeneratedFile, supported []*protogen.Field) {
 		if i == len(supported)-1 {
 			suffix = ")"
 		}
-		g.P(`    `, fieldName(field), `': `, ponyType(field), ` = `, ponyDefault(field), suffix)
+		g.P(`    `, field.Desc.Name(), `': `, ponyType(field), ` = `, ponyDefault(field), suffix)
 	}
 	g.P(`  =>`)
 	for _, field := range supported {
-		g.P(`    `, fieldName(field), ` = `, fieldName(field), `'`)
+		g.P(`    `, field.Desc.Name(), ` = `, field.Desc.Name(), `'`)
 	}
 }
 
@@ -105,7 +103,7 @@ func emitCodec(g *protogen.GeneratedFile, className string, supported []*protoge
 func emitDecode(g *protogen.GeneratedFile, className string, supported []*protogen.Field) {
 	g.P(`  fun decode(reader: WireReader ref): (`, className, ` val | WireError) =>`)
 	for _, field := range supported {
-		g.P(`    var `, fieldName(field), `: `, ponyType(field), ` = `, ponyDefault(field))
+		g.P(`    var `, field.Desc.Name(), `: `, ponyType(field), ` = `, ponyDefault(field))
 	}
 	g.P(`    while not reader.at_end() do`)
 	g.P(`      match reader.read_tag()`)
@@ -114,7 +112,7 @@ func emitDecode(g *protogen.GeneratedFile, className string, supported []*protog
 	for _, field := range supported {
 		g.P(`        | (`, field.Desc.Number(), `, `, ponyWireType(field), `) =>`)
 		g.P(`          match `, ponyReadExpr(field))
-		g.P(`          | let v: `, ponyType(field), ` => `, fieldName(field), ` = v`)
+		g.P(`          | let v: `, ponyType(field), ` => `, field.Desc.Name(), ` = v`)
 		g.P(`          | let e: WireError => return e`)
 		g.P(`          end`)
 	}
@@ -137,7 +135,7 @@ func emitConstructorCall(g *protogen.GeneratedFile, className string, supported 
 	}
 	parts := make([]string, len(supported))
 	for i, field := range supported {
-		parts[i] = fieldName(field)
+		parts[i] = string(field.Desc.Name())
 	}
 	g.P(`    `, className, `(`, strings.Join(parts, ", "), `)`)
 }
@@ -157,38 +155,33 @@ func emitEncodeField(g *protogen.GeneratedFile, field *protogen.Field) {
 	num := field.Desc.Number()
 	if field.Desc.Kind() == protoreflect.StringKind {
 		// write_string_field handles the empty-string skip internally.
-		g.P(`    writer.write_string_field(`, num, `, msg.`, fieldName(field), `)`)
+		g.P(`    writer.write_string_field(`, num, `, msg.`, field.Desc.Name(), `)`)
 		return
 	}
 	g.P(`    if `, presenceCheck(field), ` then`)
 	g.P(`      writer.write_tag(Tag(`, num, `, `, ponyWireType(field), `))`)
-	g.P(`      `, ponyWriteCall(field, "msg."+fieldName(field)))
+	g.P(`      `, ponyWriteCall(field, "msg."+string(field.Desc.Name())))
 	g.P(`    end`)
 }
 
-// emitEnumTodo lays down a placeholder for enums until enum codegen lands.
 func emitEnumTodo(g *protogen.GeneratedFile, enum *protogen.Enum, namePrefix string) {
 	g.P(`// TODO protoc-gen-pony: enum `, namePrefix, enum.Desc.Name())
 	g.P()
 }
 
-// ── classifiers ─────────────────────────────────────────────────────────
-
 // isSupported is the v1 cut: singular implicit-presence proto3 scalars only.
-// Repeated, optional explicit presence, oneofs, maps, messages, enums, and
-// groups all surface as TODO comments until the corresponding codegen lands.
+// Repeated, optional explicit presence (proto3 `optional` and editions
+// EXPLICIT presence), oneofs, maps, messages, enums, and groups all surface
+// as TODO comments until the corresponding codegen lands.
 func isSupported(field *protogen.Field) bool {
 	if field.Desc.IsList() || field.Desc.IsMap() {
 		return false
 	}
-	if field.Desc.HasPresence() && !field.Desc.HasOptionalKeyword() {
-		// Editions field with explicit presence; defer until presence codegen.
-		// (HasOptionalKeyword catches the proto3 `optional` case below.)
-	}
-	if field.Desc.HasOptionalKeyword() {
+	// Editions fields with explicit presence (and proto3 `optional`).
+	if field.Desc.HasPresence() {
 		return false
 	}
-	if field.Oneof != nil && !field.Desc.HasOptionalKeyword() {
+	if field.Oneof != nil {
 		return false
 	}
 	switch field.Desc.Kind() {
@@ -198,15 +191,14 @@ func isSupported(field *protogen.Field) bool {
 	return true
 }
 
-func classifyFields(fields []*protogen.Field) (supported, unsupported []*protogen.Field) {
+func supportedFields(fields []*protogen.Field) []*protogen.Field {
+	var out []*protogen.Field
 	for _, f := range fields {
 		if isSupported(f) {
-			supported = append(supported, f)
-		} else {
-			unsupported = append(unsupported, f)
+			out = append(out, f)
 		}
 	}
-	return
+	return out
 }
 
 // fieldShape returns a short string describing why a field is unsupported,
@@ -228,144 +220,125 @@ func fieldShape(field *protogen.Field) string {
 	return strings.Join(parts, " ")
 }
 
-// fieldName returns the Pony-side identifier for a proto field. Proto field
-// names are already snake_case so this is the identity for now; the helper
-// exists so future name-collision handling lives in one place.
-func fieldName(field *protogen.Field) string {
-	return string(field.Desc.Name())
+// scalarSpec lookups for Pony codegen. Single source of truth for the
+// FieldKind → (Pony type, default, wire type, read expr, write fmt,
+// presence-check fmt) mapping. writeFmt and presence are fmt.Sprintf
+// patterns with one `%s` for the value reference; an empty writeFmt means
+// the kind is special-cased in emitEncodeField (StringKind goes through
+// write_string_field). Adding a new Kind requires editing one entry.
+type scalarSpec struct {
+	ponyType    string
+	ponyDefault string
+	wireType    string
+	readExpr    string
+	writeFmt    string
+	presence    string
 }
 
-// ── scalar type lookup ──────────────────────────────────────────────────
+var scalarSpecs = map[protoreflect.Kind]scalarSpec{
+	protoreflect.BoolKind: {
+		ponyType: "Bool", ponyDefault: "false", wireType: "WireVarint",
+		readExpr: "Scalar.read_bool(reader)", writeFmt: "Scalar.write_bool(writer, %s)",
+		presence: "%s",
+	},
+	protoreflect.Int32Kind: {
+		ponyType: "I32", ponyDefault: "0", wireType: "WireVarint",
+		readExpr: "Scalar.read_int32(reader)", writeFmt: "Scalar.write_int32(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Int64Kind: {
+		ponyType: "I64", ponyDefault: "0", wireType: "WireVarint",
+		readExpr: "Scalar.read_int64(reader)", writeFmt: "Scalar.write_int64(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Uint32Kind: {
+		ponyType: "U32", ponyDefault: "0", wireType: "WireVarint",
+		readExpr: "Scalar.read_uint32(reader)", writeFmt: "Scalar.write_uint32(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Uint64Kind: {
+		ponyType: "U64", ponyDefault: "0", wireType: "WireVarint",
+		readExpr: "Scalar.read_uint64(reader)", writeFmt: "Scalar.write_uint64(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Sint32Kind: {
+		ponyType: "I32", ponyDefault: "0", wireType: "WireVarint",
+		readExpr: "Scalar.read_sint32(reader)", writeFmt: "Scalar.write_sint32(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Sint64Kind: {
+		ponyType: "I64", ponyDefault: "0", wireType: "WireVarint",
+		readExpr: "Scalar.read_sint64(reader)", writeFmt: "Scalar.write_sint64(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Fixed32Kind: {
+		ponyType: "U32", ponyDefault: "0", wireType: "WireFixed32",
+		readExpr: "Scalar.read_fixed32(reader)", writeFmt: "Scalar.write_fixed32(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Fixed64Kind: {
+		ponyType: "U64", ponyDefault: "0", wireType: "WireFixed64",
+		readExpr: "Scalar.read_fixed64(reader)", writeFmt: "Scalar.write_fixed64(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Sfixed32Kind: {
+		ponyType: "I32", ponyDefault: "0", wireType: "WireFixed32",
+		readExpr: "Scalar.read_sfixed32(reader)", writeFmt: "Scalar.write_sfixed32(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.Sfixed64Kind: {
+		ponyType: "I64", ponyDefault: "0", wireType: "WireFixed64",
+		readExpr: "Scalar.read_sfixed64(reader)", writeFmt: "Scalar.write_sfixed64(writer, %s)",
+		presence: "%s != 0",
+	},
+	protoreflect.FloatKind: {
+		ponyType: "F32", ponyDefault: "0.0", wireType: "WireFixed32",
+		readExpr: "Scalar.read_float(reader)", writeFmt: "Scalar.write_float(writer, %s)",
+		presence: "%s != 0.0",
+	},
+	protoreflect.DoubleKind: {
+		ponyType: "F64", ponyDefault: "0.0", wireType: "WireFixed64",
+		readExpr: "Scalar.read_double(reader)", writeFmt: "Scalar.write_double(writer, %s)",
+		presence: "%s != 0.0",
+	},
+	protoreflect.StringKind: {
+		ponyType: "String val", ponyDefault: `""`, wireType: "WireLenDelim",
+		readExpr: "reader.read_string()",
+		// writeFmt empty: emitEncodeField special-cases StringKind through
+		// write_string_field. presence empty for the same reason.
+	},
+	protoreflect.BytesKind: {
+		ponyType: "Array[U8] val", ponyDefault: "recover val Array[U8] end", wireType: "WireLenDelim",
+		readExpr: "reader.read_len_delim()", writeFmt: "writer.write_len_delim(%s)",
+		presence: "%s.size() > 0",
+	},
+}
 
 func ponyType(field *protogen.Field) string {
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		return "Bool"
-	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
-		return "I32"
-	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
-		return "I64"
-	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return "U32"
-	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		return "U64"
-	case protoreflect.FloatKind:
-		return "F32"
-	case protoreflect.DoubleKind:
-		return "F64"
-	case protoreflect.StringKind:
-		return "String val"
-	case protoreflect.BytesKind:
-		return "Array[U8] val"
-	}
-	return ""
+	return scalarSpecs[field.Desc.Kind()].ponyType
 }
 
 func ponyDefault(field *protogen.Field) string {
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		return "false"
-	case protoreflect.FloatKind, protoreflect.DoubleKind:
-		return "0.0"
-	case protoreflect.StringKind:
-		return `""`
-	case protoreflect.BytesKind:
-		return "recover val Array[U8] end"
-	}
-	return "0"
+	return scalarSpecs[field.Desc.Kind()].ponyDefault
 }
 
 func ponyWireType(field *protogen.Field) string {
-	switch field.Desc.Kind() {
-	case protoreflect.Fixed32Kind, protoreflect.Sfixed32Kind, protoreflect.FloatKind:
-		return "WireFixed32"
-	case protoreflect.Fixed64Kind, protoreflect.Sfixed64Kind, protoreflect.DoubleKind:
-		return "WireFixed64"
-	case protoreflect.StringKind, protoreflect.BytesKind:
-		return "WireLenDelim"
-	}
-	return "WireVarint"
+	return scalarSpecs[field.Desc.Kind()].wireType
 }
 
 func ponyReadExpr(field *protogen.Field) string {
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		return "Scalar.read_bool(reader)"
-	case protoreflect.Int32Kind:
-		return "Scalar.read_int32(reader)"
-	case protoreflect.Int64Kind:
-		return "Scalar.read_int64(reader)"
-	case protoreflect.Uint32Kind:
-		return "Scalar.read_uint32(reader)"
-	case protoreflect.Uint64Kind:
-		return "Scalar.read_uint64(reader)"
-	case protoreflect.Sint32Kind:
-		return "Scalar.read_sint32(reader)"
-	case protoreflect.Sint64Kind:
-		return "Scalar.read_sint64(reader)"
-	case protoreflect.Fixed32Kind:
-		return "Scalar.read_fixed32(reader)"
-	case protoreflect.Fixed64Kind:
-		return "Scalar.read_fixed64(reader)"
-	case protoreflect.Sfixed32Kind:
-		return "Scalar.read_sfixed32(reader)"
-	case protoreflect.Sfixed64Kind:
-		return "Scalar.read_sfixed64(reader)"
-	case protoreflect.FloatKind:
-		return "Scalar.read_float(reader)"
-	case protoreflect.DoubleKind:
-		return "Scalar.read_double(reader)"
-	case protoreflect.StringKind:
-		return "reader.read_string()"
-	case protoreflect.BytesKind:
-		return "reader.read_len_delim()"
-	}
-	return ""
+	return scalarSpecs[field.Desc.Kind()].readExpr
 }
 
 func ponyWriteCall(field *protogen.Field, valueRef string) string {
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		return fmt.Sprintf("Scalar.write_bool(writer, %s)", valueRef)
-	case protoreflect.Int32Kind:
-		return fmt.Sprintf("Scalar.write_int32(writer, %s)", valueRef)
-	case protoreflect.Int64Kind:
-		return fmt.Sprintf("Scalar.write_int64(writer, %s)", valueRef)
-	case protoreflect.Uint32Kind:
-		return fmt.Sprintf("Scalar.write_uint32(writer, %s)", valueRef)
-	case protoreflect.Uint64Kind:
-		return fmt.Sprintf("Scalar.write_uint64(writer, %s)", valueRef)
-	case protoreflect.Sint32Kind:
-		return fmt.Sprintf("Scalar.write_sint32(writer, %s)", valueRef)
-	case protoreflect.Sint64Kind:
-		return fmt.Sprintf("Scalar.write_sint64(writer, %s)", valueRef)
-	case protoreflect.Fixed32Kind:
-		return fmt.Sprintf("Scalar.write_fixed32(writer, %s)", valueRef)
-	case protoreflect.Fixed64Kind:
-		return fmt.Sprintf("Scalar.write_fixed64(writer, %s)", valueRef)
-	case protoreflect.Sfixed32Kind:
-		return fmt.Sprintf("Scalar.write_sfixed32(writer, %s)", valueRef)
-	case protoreflect.Sfixed64Kind:
-		return fmt.Sprintf("Scalar.write_sfixed64(writer, %s)", valueRef)
-	case protoreflect.FloatKind:
-		return fmt.Sprintf("Scalar.write_float(writer, %s)", valueRef)
-	case protoreflect.DoubleKind:
-		return fmt.Sprintf("Scalar.write_double(writer, %s)", valueRef)
-	case protoreflect.BytesKind:
-		return fmt.Sprintf("writer.write_len_delim(%s)", valueRef)
+	spec := scalarSpecs[field.Desc.Kind()]
+	if spec.writeFmt == "" {
+		return ""
 	}
-	return ""
+	return fmt.Sprintf(spec.writeFmt, valueRef)
 }
 
 func presenceCheck(field *protogen.Field) string {
-	ref := "msg." + fieldName(field)
-	switch field.Desc.Kind() {
-	case protoreflect.BoolKind:
-		return ref
-	case protoreflect.FloatKind, protoreflect.DoubleKind:
-		return ref + " != 0.0"
-	case protoreflect.BytesKind:
-		return ref + ".size() > 0"
-	}
-	return ref + " != 0"
+	spec := scalarSpecs[field.Desc.Kind()]
+	return fmt.Sprintf(spec.presence, "msg."+string(field.Desc.Name()))
 }

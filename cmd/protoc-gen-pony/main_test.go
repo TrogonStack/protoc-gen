@@ -14,23 +14,19 @@ import (
 
 // runPlugin builds a synthetic plugin invocation around the supplied
 // FileDescriptorProtos and returns the generated content for the file
-// matching `wantFilename`. Test helper for the rest of the file.
+// matching `wantFilename`. Goes through injectGoImportStubs so that helper
+// gets exercised by the test suite.
 func runPlugin(t *testing.T, files []*descriptorpb.FileDescriptorProto, wantFilename string) string {
 	t.Helper()
 	toGenerate := make([]string, 0, len(files))
-	mappings := make([]string, 0, len(files))
 	for _, f := range files {
 		toGenerate = append(toGenerate, f.GetName())
-		// protogen insists on a Go import path even for non-Go targets;
-		// supplying M<file>=<path> stops it from erroring on missing go_package.
-		mappings = append(mappings, "M"+f.GetName()+"=example.com/test")
 	}
-	param := strings.Join(mappings, ",")
 	req := &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: toGenerate,
 		ProtoFile:      files,
-		Parameter:      &param,
 	}
+	injectGoImportStubs(req)
 	plugin, err := protogen.Options{}.New(req)
 	require.NoError(t, err)
 	for _, f := range plugin.Files {
@@ -57,6 +53,19 @@ func fileNames(files []*pluginpb.CodeGeneratorResponse_File) []string {
 	return names
 }
 
+// field is a fixture builder for FieldDescriptorProto that defaults Label
+// to OPTIONAL — the singular-presence shape the v1 plugin generates code
+// for. Tests that need a different label build the descriptor inline.
+func field(name string, num int32, kind descriptorpb.FieldDescriptorProto_Type) *descriptorpb.FieldDescriptorProto {
+	return &descriptorpb.FieldDescriptorProto{
+		Name:     proto.String(name),
+		Number:   proto.Int32(num),
+		Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+		Type:     kind.Enum(),
+		JsonName: proto.String(name),
+	}
+}
+
 // scalarMessageProto returns a FileDescriptor with one User message
 // containing one int32, one string, and one bool field.
 func scalarMessageProto() *descriptorpb.FileDescriptorProto {
@@ -68,27 +77,9 @@ func scalarMessageProto() *descriptorpb.FileDescriptorProto {
 			{
 				Name: proto.String("User"),
 				Field: []*descriptorpb.FieldDescriptorProto{
-					{
-						Name:     proto.String("id"),
-						Number:   proto.Int32(1),
-						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
-						Type:     descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
-						JsonName: proto.String("id"),
-					},
-					{
-						Name:     proto.String("name"),
-						Number:   proto.Int32(2),
-						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
-						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
-						JsonName: proto.String("name"),
-					},
-					{
-						Name:     proto.String("active"),
-						Number:   proto.Int32(3),
-						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
-						Type:     descriptorpb.FieldDescriptorProto_TYPE_BOOL.Enum(),
-						JsonName: proto.String("active"),
-					},
+					field("id", 1, descriptorpb.FieldDescriptorProto_TYPE_INT32),
+					field("name", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+					field("active", 3, descriptorpb.FieldDescriptorProto_TYPE_BOOL),
 				},
 			},
 		},
@@ -160,6 +151,8 @@ func TestEmptyMessage(t *testing.T) {
 
 func TestUnsupportedShapesEmitTodo(t *testing.T) {
 	t.Parallel()
+	tags := field("tags", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING)
+	tags.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
 	file := &descriptorpb.FileDescriptorProto{
 		Name:    proto.String("zoo.proto"),
 		Package: proto.String("zoo"),
@@ -168,18 +161,8 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 			{
 				Name: proto.String("Zoo"),
 				Field: []*descriptorpb.FieldDescriptorProto{
-					{
-						Name:   proto.String("id"),
-						Number: proto.Int32(1),
-						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
-						Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
-					},
-					{
-						Name:   proto.String("tags"),
-						Number: proto.Int32(2),
-						Label:  descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
-						Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
-					},
+					field("id", 1, descriptorpb.FieldDescriptorProto_TYPE_INT32),
+					tags,
 				},
 			},
 		},
@@ -204,12 +187,7 @@ func TestNestedMessageFlatNaming(t *testing.T) {
 					{
 						Name: proto.String("Inner"),
 						Field: []*descriptorpb.FieldDescriptorProto{
-							{
-								Name:   proto.String("value"),
-								Number: proto.Int32(1),
-								Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
-								Type:   descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
-							},
+							field("value", 1, descriptorpb.FieldDescriptorProto_TYPE_INT64),
 						},
 					},
 				},

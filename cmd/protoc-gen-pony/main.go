@@ -111,9 +111,6 @@ func main() {
 	}
 }
 
-// injectGoImportStubs prepends an M<file>=stub for every file in the request
-// so protogen.New doesn't reject the input. User-provided M-params still
-// take precedence because they appear later in the comma-separated string.
 func injectGoImportStubs(req *pluginpb.CodeGeneratorRequest) {
 	parts := make([]string, 0, len(req.GetProtoFile())+1)
 	for _, file := range req.GetProtoFile() {
