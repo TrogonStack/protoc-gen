@@ -27,6 +27,9 @@
     },
     "cmd/protoc-gen-elixir-grpc": {
       "component": "protoc-gen-elixir-grpc"
+    },
+    "cmd/protoc-gen-pony": {
+      "component": "protoc-gen-pony"
     }
   },
   "plugins": [

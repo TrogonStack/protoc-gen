@@ -31,7 +31,6 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
@@ -87,11 +86,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "protoc-gen-pony: %v\n", err)
 		os.Exit(1)
 	}
-	plugin.SupportedFeatures =
-		uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL) |
-			uint64(pluginpb.CodeGeneratorResponse_FEATURE_SUPPORTS_EDITIONS)
-	plugin.SupportedEditionsMinimum = descriptorpb.Edition_EDITION_PROTO2
-	plugin.SupportedEditionsMaximum = descriptorpb.Edition_EDITION_2024
+	// Don't advertise FEATURE_PROTO3_OPTIONAL or FEATURE_SUPPORTS_EDITIONS:
+	// the v1 generator emits TODO comments for explicit-presence/oneof/map/
+	// embedded/enum fields rather than handling them. Advertising support
+	// for features we don't implement risks protoc passing input we'll
+	// silently miscompile. When a future PR lands real codegen for those
+	// shapes, flip the flags back on.
 
 	for _, file := range plugin.Files {
 		if file.Generate {

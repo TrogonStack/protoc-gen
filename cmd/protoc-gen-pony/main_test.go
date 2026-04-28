@@ -151,8 +151,48 @@ func TestEmptyMessage(t *testing.T) {
 
 func TestUnsupportedShapesEmitTodo(t *testing.T) {
 	t.Parallel()
+
+	// Repeated string.
 	tags := field("tags", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING)
 	tags.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+
+	// Real oneof "kind" at OneofIndex 0 — synthetic oneofs for proto3
+	// `optional` must come AFTER real oneofs in OneofDecl, so the real one
+	// is declared first.
+	typeA := field("type_a", 4, descriptorpb.FieldDescriptorProto_TYPE_STRING)
+	typeA.OneofIndex = proto.Int32(0)
+	typeB := field("type_b", 5, descriptorpb.FieldDescriptorProto_TYPE_INT32)
+	typeB.OneofIndex = proto.Int32(0)
+
+	// proto3 explicit `optional` — synthesized into a single-field oneof
+	// at OneofIndex 1.
+	optCount := field("count", 3, descriptorpb.FieldDescriptorProto_TYPE_INT32)
+	optCount.Proto3Optional = proto.Bool(true)
+	optCount.OneofIndex = proto.Int32(1)
+
+	// Embedded message field.
+	parent := field("parent", 6, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	parent.TypeName = proto.String(".zoo.Parent")
+
+	// Enum field.
+	status := field("status", 7, descriptorpb.FieldDescriptorProto_TYPE_ENUM)
+	status.TypeName = proto.String(".zoo.Status")
+
+	// map<string, int32> — modeled in descriptors as a repeated MESSAGE
+	// field pointing at a synthetic nested MapEntry type with
+	// MessageOptions.map_entry=true.
+	metadata := field("metadata", 8, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	metadata.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+	metadata.TypeName = proto.String(".zoo.Zoo.MetadataEntry")
+	mapEntry := &descriptorpb.DescriptorProto{
+		Name: proto.String("MetadataEntry"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			field("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+			field("value", 2, descriptorpb.FieldDescriptorProto_TYPE_INT32),
+		},
+		Options: &descriptorpb.MessageOptions{MapEntry: proto.Bool(true)},
+	}
+
 	file := &descriptorpb.FileDescriptorProto{
 		Name:    proto.String("zoo.proto"),
 		Package: proto.String("zoo"),
@@ -162,17 +202,40 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 				Name: proto.String("Zoo"),
 				Field: []*descriptorpb.FieldDescriptorProto{
 					field("id", 1, descriptorpb.FieldDescriptorProto_TYPE_INT32),
-					tags,
+					tags, optCount, typeA, typeB, parent, status, metadata,
+				},
+				NestedType: []*descriptorpb.DescriptorProto{mapEntry},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("kind")},
+					{Name: proto.String("_count")},
+				},
+			},
+			{Name: proto.String("Parent")},
+		},
+		EnumType: []*descriptorpb.EnumDescriptorProto{
+			{
+				Name: proto.String("Status"),
+				Value: []*descriptorpb.EnumValueDescriptorProto{
+					{Name: proto.String("UNKNOWN"), Number: proto.Int32(0)},
+					{Name: proto.String("ACTIVE"), Number: proto.Int32(1)},
 				},
 			},
 		},
 	}
+
 	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "zoo.pony")
+
+	// The one supported field stays.
 	assert.Contains(t, out, "let id: I32")
-	assert.Contains(t, out, "TODO protoc-gen-pony: field tags")
-	// Repeated fields don't appear in the constructor's supported list.
-	supportedConstructorLine := strings.Contains(out, "tags':")
-	assert.False(t, supportedConstructorLine, "tags should be skipped from the constructor signature")
+
+	// Every unsupported shape lays down a TODO and stays out of the constructor.
+	unsupported := []string{"tags", "count", "type_a", "type_b", "parent", "status", "metadata"}
+	for _, name := range unsupported {
+		assert.Contains(t, out, "TODO protoc-gen-pony: field "+name,
+			"missing TODO for %q", name)
+		assert.False(t, strings.Contains(out, name+"': "),
+			"%q should be skipped from the constructor signature", name)
+	}
 }
 
 func TestNestedMessageFlatNaming(t *testing.T) {
