@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -40,6 +41,14 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 	g.P()
 
 	ctx := &genCtx{plugin: plugin, file: file, g: g}
+
+	if useDirs := ctx.crossDirUseDirectives(); len(useDirs) > 0 {
+		for _, u := range useDirs {
+			g.P(`use "`, u, `"`)
+		}
+		g.P()
+	}
+
 	ctx.collectAndEmitMessages(file.Messages, "")
 	for _, enum := range file.Enums {
 		ctx.emitEnum(enum, "")
@@ -69,52 +78,90 @@ func (ctx *genCtx) collectAndEmitMessages(messages []*protogen.Message, namePref
 
 func (ctx *genCtx) emitMessage(msg *protogen.Message, className string) {
 	supported := ctx.supportedFields(msg.Fields)
-	ctx.emitClass(className, msg.Fields, supported)
+	oneofs := ctx.supportedRealOneofs(msg)
+	for _, oo := range oneofs {
+		ctx.emitOneofWrapperTypes(className, oo)
+	}
+	ctx.emitClass(className, msg.Fields, oneofs)
+	ctx.emitConstructor(supported, oneofs, className)
 	ctx.g.P()
-	ctx.emitCodec(className, supported)
+	ctx.emitCodec(className, supported, oneofs)
 	ctx.g.P()
 }
 
-func (ctx *genCtx) emitClass(className string, all, supported []*protogen.Field) {
+func (ctx *genCtx) emitClass(className string, all []*protogen.Field, oneofs []*protogen.Oneof) {
+	inSupportedOneof := func(oo *protogen.Oneof) bool {
+		for _, o := range oneofs {
+			if o == oo {
+				return true
+			}
+		}
+		return false
+	}
+	todo := func(f *protogen.Field) {
+		ctx.g.P(`  // TODO protoc-gen-pony: field `, f.Desc.Name(), ` (`, fieldShape(f), `)`)
+	}
 	ctx.g.P(`class val `, className)
+	seenOneof := make(map[*protogen.Oneof]bool)
 	for _, field := range all {
-		if ctx.isSupported(field) {
+		if field.Oneof != nil && !field.Desc.HasOptionalKeyword() {
+			oo := field.Oneof
+			if inSupportedOneof(oo) {
+				if !seenOneof[oo] {
+					seenOneof[oo] = true
+					ctx.g.P(`  let `, oo.Desc.Name(), `: `, oneofTypeName(className, oo))
+				}
+			} else {
+				todo(field)
+			}
+		} else if ctx.isSupported(field) {
 			ctx.g.P(`  let `, field.Desc.Name(), `: `, ctx.fieldPonyType(field))
 		} else {
-			ctx.g.P(`  // TODO protoc-gen-pony: field `, field.Desc.Name(), ` (`, fieldShape(field), `)`)
+			todo(field)
 		}
 	}
 	ctx.g.P()
-	ctx.emitConstructor(supported)
 }
 
-func (ctx *genCtx) emitConstructor(supported []*protogen.Field) {
-	if len(supported) == 0 {
+func (ctx *genCtx) emitConstructor(supported []*protogen.Field, oneofs []*protogen.Oneof, className string) {
+	if len(supported) == 0 && len(oneofs) == 0 {
 		ctx.g.P(`  new val create() => None`)
 		return
 	}
-	ctx.g.P(`  new val create(`)
-	for i, field := range supported {
-		suffix := ","
-		if i == len(supported)-1 {
-			suffix = ")"
+	total := len(supported) + len(oneofs)
+	suffix := func(i int) string {
+		if i == total {
+			return ")"
 		}
-		ctx.g.P(`    `, field.Desc.Name(), `': `, ctx.fieldPonyType(field), ` = `, ctx.fieldPonyDefault(field), suffix)
+		return ","
+	}
+	ctx.g.P(`  new val create(`)
+	i := 0
+	for _, field := range supported {
+		i++
+		ctx.g.P(`    `, field.Desc.Name(), `': `, ctx.fieldPonyType(field), ` = `, ctx.fieldPonyDefault(field), suffix(i))
+	}
+	for _, oo := range oneofs {
+		i++
+		ctx.g.P(`    `, oo.Desc.Name(), `': `, oneofTypeName(className, oo), ` = None`, suffix(i))
 	}
 	ctx.g.P(`  =>`)
 	for _, field := range supported {
 		ctx.g.P(`    `, field.Desc.Name(), ` = `, field.Desc.Name(), `'`)
 	}
+	for _, oo := range oneofs {
+		ctx.g.P(`    `, oo.Desc.Name(), ` = `, oo.Desc.Name(), `'`)
+	}
 }
 
-func (ctx *genCtx) emitCodec(className string, supported []*protogen.Field) {
+func (ctx *genCtx) emitCodec(className string, supported []*protogen.Field, oneofs []*protogen.Oneof) {
 	ctx.g.P(`primitive `, className, `Codec`)
-	ctx.emitDecode(className, supported)
+	ctx.emitDecode(className, supported, oneofs)
 	ctx.g.P()
-	ctx.emitEncode(className, supported)
+	ctx.emitEncode(className, supported, oneofs)
 }
 
-func (ctx *genCtx) emitDecode(className string, supported []*protogen.Field) {
+func (ctx *genCtx) emitDecode(className string, supported []*protogen.Field, oneofs []*protogen.Oneof) {
 	ctx.g.P(`  fun decode(reader: WireReader ref): (`, className, ` val | WireError) =>`)
 	for _, field := range supported {
 		name := string(field.Desc.Name())
@@ -125,12 +172,20 @@ func (ctx *genCtx) emitDecode(className string, supported []*protogen.Field) {
 			ctx.g.P(`    var `, name, `: `, ctx.fieldPonyType(field), ` = `, ctx.fieldPonyDefault(field))
 		}
 	}
+	for _, oo := range oneofs {
+		ctx.g.P(`    var `, oo.Desc.Name(), `: `, oneofTypeName(className, oo), ` = None`)
+	}
 	ctx.g.P(`    while not reader.at_end() do`)
 	ctx.g.P(`      match reader.read_tag()`)
 	ctx.g.P(`      | let t: Tag =>`)
 	ctx.g.P(`        match (t.field_number, t.wire_type)`)
 	for _, field := range supported {
 		ctx.emitDecodeArm(field)
+	}
+	for _, oo := range oneofs {
+		for _, f := range oo.Fields {
+			ctx.emitOneofDecodeArm(f, string(oo.Desc.Name()), oneofCaseName(className, oo, f))
+		}
 	}
 	ctx.g.P(`        else`)
 	ctx.g.P(`          match reader.skip(t.wire_type)`)
@@ -141,7 +196,7 @@ func (ctx *genCtx) emitDecode(className string, supported []*protogen.Field) {
 	ctx.g.P(`      | let e: WireError => return e`)
 	ctx.g.P(`      end`)
 	ctx.g.P(`    end`)
-	ctx.emitConstructorCall(className, supported)
+	ctx.emitConstructorCall(className, supported, oneofs)
 }
 
 func (ctx *genCtx) emitDecodeArm(field *protogen.Field) {
@@ -252,30 +307,36 @@ func (ctx *genCtx) emitDecodeArm(field *protogen.Field) {
 	}
 }
 
-func (ctx *genCtx) emitConstructorCall(className string, supported []*protogen.Field) {
-	if len(supported) == 0 {
+func (ctx *genCtx) emitConstructorCall(className string, supported []*protogen.Field, oneofs []*protogen.Oneof) {
+	if len(supported) == 0 && len(oneofs) == 0 {
 		ctx.g.P(`    `, className)
 		return
 	}
-	parts := make([]string, len(supported))
-	for i, field := range supported {
+	parts := make([]string, 0, len(supported)+len(oneofs))
+	for _, field := range supported {
 		if field.Desc.IsList() {
-			parts[i] = "consume " + string(field.Desc.Name())
+			parts = append(parts, "consume "+string(field.Desc.Name()))
 		} else {
-			parts[i] = string(field.Desc.Name())
+			parts = append(parts, string(field.Desc.Name()))
 		}
+	}
+	for _, oo := range oneofs {
+		parts = append(parts, string(oo.Desc.Name()))
 	}
 	ctx.g.P(`    `, className, `(`, strings.Join(parts, ", "), `)`)
 }
 
-func (ctx *genCtx) emitEncode(className string, supported []*protogen.Field) {
+func (ctx *genCtx) emitEncode(className string, supported []*protogen.Field, oneofs []*protogen.Oneof) {
 	ctx.g.P(`  fun encode(writer: WireWriter ref, msg: `, className, ` val) =>`)
-	if len(supported) == 0 {
+	if len(supported) == 0 && len(oneofs) == 0 {
 		ctx.g.P(`    None`)
 		return
 	}
 	for _, field := range supported {
 		ctx.emitEncodeField(field)
+	}
+	for _, oo := range oneofs {
+		ctx.emitOneofEncodeBlock(className, oo)
 	}
 }
 
@@ -393,6 +454,200 @@ func (ctx *genCtx) emitOptionalEncodeField(field *protogen.Field) {
 	}
 }
 
+func (ctx *genCtx) emitOneofWrapperTypes(className string, oo *protogen.Oneof) {
+	caseNames := make([]string, 0, len(oo.Fields))
+	for _, f := range oo.Fields {
+		caseName := oneofCaseName(className, oo, f)
+		valType := ctx.oneofMemberPonyType(f)
+		valDefault := ctx.oneofMemberDefault(f)
+		ctx.g.P(`class val `, caseName)
+		ctx.g.P(`  let value: `, valType)
+		if valDefault != "" {
+			ctx.g.P(`  new val create(value': `, valType, ` = `, valDefault, `) => value = value'`)
+		} else {
+			ctx.g.P(`  new val create(value': `, valType, `) => value = value'`)
+		}
+		ctx.g.P()
+		caseNames = append(caseNames, caseName)
+	}
+	ctx.g.P(`type `, oneofTypeName(className, oo), ` is (`, strings.Join(append(caseNames, "None"), " | "), `)`)
+	ctx.g.P()
+}
+
+// emitOneofDecodeArm emits a match arm that reads a single oneof member and
+// assigns `varName = CaseClass(decoded_value)`.
+func (ctx *genCtx) emitOneofDecodeArm(field *protogen.Field, varName, caseName string) {
+	num := field.Desc.Number()
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		codec := ponyMessageClassName(field.Message) + "Codec"
+		msgType := ponyMessageClassName(field.Message) + " val"
+		ctx.g.P(`        | (`, num, `, WireLenDelim) =>`)
+		ctx.g.P(`          match reader.read_len_delim()`)
+		ctx.g.P(`          | let b: Array[U8] val =>`)
+		ctx.g.P(`            match `, codec, `.decode(WireReader(b))`)
+		ctx.g.P(`            | let v: `, msgType, ` => `, varName, ` = `, caseName, `(v)`)
+		ctx.g.P(`            | let e: WireError => return e`)
+		ctx.g.P(`            end`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+	case protoreflect.EnumKind:
+		fromValue := ponyEnumFromValueName(field.Enum)
+		ctx.g.P(`        | (`, num, `, WireVarint) =>`)
+		ctx.g.P(`          match Scalar.read_int32(reader)`)
+		ctx.g.P(`          | let v: I32 => `, varName, ` = `, caseName, `(`, fromValue, `(v))`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+	case protoreflect.StringKind:
+		ctx.g.P(`        | (`, num, `, WireLenDelim) =>`)
+		ctx.g.P(`          match reader.read_string()`)
+		ctx.g.P(`          | let v: String val => `, varName, ` = `, caseName, `(v)`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+	case protoreflect.BytesKind:
+		ctx.g.P(`        | (`, num, `, WireLenDelim) =>`)
+		ctx.g.P(`          match reader.read_len_delim()`)
+		ctx.g.P(`          | let v: Array[U8] val => `, varName, ` = `, caseName, `(v)`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+	default:
+		spec := scalarSpecs[field.Desc.Kind()]
+		ctx.g.P(`        | (`, num, `, `, spec.wireType, `) =>`)
+		ctx.g.P(`          match `, spec.readExpr)
+		ctx.g.P(`          | let v: `, spec.ponyType, ` => `, varName, ` = `, caseName, `(v)`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+	}
+}
+
+// emitOneofEncodeBlock emits `match msg.kind | let v: CaseA => ... | None => None end`.
+func (ctx *genCtx) emitOneofEncodeBlock(className string, oo *protogen.Oneof) {
+	ctx.g.P(`    match msg.`, oo.Desc.Name())
+	for _, f := range oo.Fields {
+		caseName := oneofCaseName(className, oo, f)
+		ctx.g.P(`    | let v: `, caseName, ` =>`)
+		ctx.emitOneofCaseEncode(f)
+	}
+	ctx.g.P(`    | None => None`)
+	ctx.g.P(`    end`)
+}
+
+func (ctx *genCtx) emitOneofCaseEncode(field *protogen.Field) {
+	num := field.Desc.Number()
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		codec := ponyMessageClassName(field.Message) + "Codec"
+		ctx.g.P(`      let sub = WireWriter`)
+		ctx.g.P(`      `, codec, `.encode(sub, v.value)`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+		ctx.g.P(`      writer.write_len_delim(sub.done())`)
+	case protoreflect.EnumKind:
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireVarint))`)
+		ctx.g.P(`      Scalar.write_int32(writer, v.value.value())`)
+	case protoreflect.StringKind:
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+		ctx.g.P(`      writer.write_string(v.value)`)
+	case protoreflect.BytesKind:
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+		ctx.g.P(`      writer.write_len_delim(v.value)`)
+	default:
+		spec := scalarSpecs[field.Desc.Kind()]
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, `, spec.wireType, `))`)
+		ctx.g.P(`      `, fmt.Sprintf(spec.writeFmt, "v.value"))
+	}
+}
+
+// supportedRealOneofs returns the non-synthetic oneofs in msg whose every
+// member passes isSupportedOneofMember. If any member is unsupported (WKT,
+// group, etc.), the whole oneof emits TODO comments instead.
+func (ctx *genCtx) supportedRealOneofs(msg *protogen.Message) []*protogen.Oneof {
+	var result []*protogen.Oneof
+	for _, oo := range msg.Oneofs {
+		if oo.Desc.IsSynthetic() {
+			continue
+		}
+		ok := true
+		for _, f := range oo.Fields {
+			if !ctx.isSupportedOneofMember(f) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			result = append(result, oo)
+		}
+	}
+	return result
+}
+
+// isSupportedOneofMember applies the field-kind checks to a oneof member
+// without the real-oneof gate that isSupported enforces.
+func (ctx *genCtx) isSupportedOneofMember(field *protogen.Field) bool {
+	switch field.Desc.Kind() {
+	case protoreflect.GroupKind:
+		return false
+	case protoreflect.MessageKind:
+		if field.Message == nil || field.Message.Desc.IsMapEntry() {
+			return false
+		}
+		return !isWKT(field.Message.Desc.ParentFile())
+	case protoreflect.EnumKind:
+		if field.Enum == nil {
+			return false
+		}
+		return !isWKT(field.Enum.Desc.ParentFile())
+	}
+	return true
+}
+
+// oneofMemberPonyType returns the raw Pony type for a oneof member value —
+// no None wrapper, since None comes from the outer union type alias.
+func (ctx *genCtx) oneofMemberPonyType(field *protogen.Field) string {
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		return ponyMessageClassName(field.Message) + " val"
+	case protoreflect.EnumKind:
+		return ponyEnumTypeName(field.Enum)
+	}
+	return scalarSpecs[field.Desc.Kind()].ponyType
+}
+
+// oneofMemberDefault returns the constructor default for a oneof member's
+// value field. Returns "" for message kinds (no sensible zero value exists).
+func (ctx *genCtx) oneofMemberDefault(field *protogen.Field) string {
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		return ""
+	case protoreflect.EnumKind:
+		return ponyEnumZeroValuePrimitive(field.Enum)
+	}
+	return scalarSpecs[field.Desc.Kind()].ponyDefault
+}
+
+// oneofTypeName builds the Pony type alias name for a real oneof.
+// e.g. className="Zoo", oneof="kind" → "ZooKind"
+func oneofTypeName(className string, oo *protogen.Oneof) string {
+	return className + snakeToPascal(string(oo.Desc.Name()))
+}
+
+// oneofCaseName builds the Pony wrapper class name for one oneof member.
+// e.g. className="Zoo", oneof="kind", field="type_a" → "ZooKindTypeA"
+func oneofCaseName(className string, oo *protogen.Oneof, field *protogen.Field) string {
+	return className + snakeToPascal(string(oo.Desc.Name())) + snakeToPascal(string(field.Desc.Name()))
+}
+
+// snakeToPascal converts snake_case to PascalCase: "type_a" → "TypeA".
+func snakeToPascal(s string) string {
+	parts := strings.Split(s, "_")
+	var b strings.Builder
+	for _, p := range parts {
+		if len(p) > 0 {
+			b.WriteString(strings.ToUpper(p[:1]) + p[1:])
+		}
+	}
+	return b.String()
+}
+
 func (ctx *genCtx) emitEnum(enum *protogen.Enum, namePrefix string) {
 	enumTypeName := namePrefix + string(enum.Desc.Name())
 	fromValueName := enumTypeName + "FromValue"
@@ -429,9 +684,9 @@ func (ctx *genCtx) emitEnum(enum *protogen.Enum, namePrefix string) {
 }
 
 // isSupported returns true for field shapes we generate code for.
-// Out: maps, oneofs, proto3 optional (synthetic oneof), groups, cross-file
-// message/enum refs. In: scalars (singular + repeated), same-file messages
-// (singular + repeated), same-file enums (singular + repeated).
+// Out: maps, real oneofs, groups, WKT message/enum refs.
+// In: scalars (singular + repeated), messages (singular + repeated, any dir),
+// enums (singular + repeated, any dir), proto3 optional.
 func (ctx *genCtx) isSupported(field *protogen.Field) bool {
 	if field.Desc.IsMap() {
 		return false
@@ -439,21 +694,101 @@ func (ctx *genCtx) isSupported(field *protogen.Field) bool {
 	if field.Oneof != nil && !field.Desc.HasOptionalKeyword() {
 		return false
 	}
-	switch field.Desc.Kind() {
-	case protoreflect.GroupKind:
-		return false
-	case protoreflect.MessageKind:
-		if field.Message == nil || field.Message.Desc.IsMapEntry() {
-			return false
+	return ctx.isSupportedOneofMember(field)
+}
+
+// isWKT reports whether f is a well-known-type file. WKT support requires
+// hand-written runtime shims that don't exist yet, so these refs stay TODO.
+func isWKT(f protoreflect.FileDescriptor) bool {
+	return strings.HasPrefix(f.Path(), "google/protobuf/")
+}
+
+// crossDirUseDirectives returns sorted relative-path strings for Pony `use`
+// directives needed to reference types from other proto packages. Same-
+// directory refs are already in the same Pony package and need no import.
+func (ctx *genCtx) crossDirUseDirectives() []string {
+	thisDir := path.Dir(ctx.file.Desc.Path())
+	dirToRel := make(map[string]string)
+
+	addDepPath := func(depPath string) {
+		if depPath == "" {
+			return
 		}
-		return ctx.isSamePonyPackage(field.Message.Desc.ParentFile())
-	case protoreflect.EnumKind:
-		if field.Enum == nil {
-			return false
+		depDir := path.Dir(depPath)
+		if depDir == thisDir {
+			return
 		}
-		return ctx.isSamePonyPackage(field.Enum.Desc.ParentFile())
+		if _, ok := dirToRel[depDir]; !ok {
+			dirToRel[depDir] = protoRelDir(thisDir, depDir)
+		}
 	}
-	return true
+
+	checkField := func(f *protogen.Field) {
+		switch f.Desc.Kind() {
+		case protoreflect.MessageKind:
+			if f.Message != nil {
+				addDepPath(f.Message.Desc.ParentFile().Path())
+			}
+		case protoreflect.EnumKind:
+			if f.Enum != nil {
+				addDepPath(f.Enum.Desc.ParentFile().Path())
+			}
+		}
+	}
+
+	var walkMessages func([]*protogen.Message)
+	walkMessages = func(msgs []*protogen.Message) {
+		for _, msg := range msgs {
+			if msg.Desc.IsMapEntry() {
+				continue
+			}
+			// Collect cross-dir deps from regular supported fields.
+			for _, f := range msg.Fields {
+				if ctx.isSupported(f) {
+					checkField(f)
+				}
+			}
+			// Also collect from oneof members in supported real oneofs.
+			for _, oo := range ctx.supportedRealOneofs(msg) {
+				for _, f := range oo.Fields {
+					checkField(f)
+				}
+			}
+			walkMessages(msg.Messages)
+		}
+	}
+	walkMessages(ctx.file.Messages)
+
+	result := make([]string, 0, len(dirToRel))
+	for _, rel := range dirToRel {
+		result = append(result, rel)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// protoRelDir returns the relative path from fromDir to toDir using
+// slash-separated proto path components (e.g. "geo" → "../common").
+// If the result doesn't start with "..", it is prefixed with "./" to
+// distinguish it from a package-name lookup.
+func protoRelDir(fromDir, toDir string) string {
+	from := strings.Split(path.Clean(fromDir), "/")
+	to := strings.Split(path.Clean(toDir), "/")
+	// trim common prefix
+	i := 0
+	for i < len(from) && i < len(to) && from[i] == to[i] {
+		i++
+	}
+	var parts []string
+	for range from[i:] {
+		parts = append(parts, "..")
+	}
+	parts = append(parts, to[i:]...)
+	rel := strings.Join(parts, "/")
+	if !strings.HasPrefix(rel, "..") {
+		rel = "./" + rel
+	}
+	return rel
 }
 
 func (ctx *genCtx) supportedFields(fields []*protogen.Field) []*protogen.Field {
@@ -464,10 +799,6 @@ func (ctx *genCtx) supportedFields(fields []*protogen.Field) []*protogen.Field {
 		}
 	}
 	return out
-}
-
-func (ctx *genCtx) isSamePonyPackage(parentFile protoreflect.FileDescriptor) bool {
-	return path.Dir(parentFile.Path()) == path.Dir(ctx.file.Desc.Path())
 }
 
 // fieldPonyType returns the Pony type declaration for a field.
@@ -531,14 +862,7 @@ func (ctx *genCtx) fieldPonyDefault(field *protogen.Field) string {
 // screamingToPascal converts SCREAMING_SNAKE_CASE to PascalCase.
 // STATUS_UNKNOWN → StatusUnknown, ACTIVE → Active.
 func screamingToPascal(s string) string {
-	parts := strings.Split(strings.ToLower(s), "_")
-	var b strings.Builder
-	for _, p := range parts {
-		if len(p) > 0 {
-			b.WriteString(strings.ToUpper(p[:1]) + p[1:])
-		}
-	}
-	return b.String()
+	return snakeToPascal(strings.ToLower(s))
 }
 
 // ponyMessageClassName builds the flat Pony class name for a message by

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"path"
+	"strings"
 	"testing"
+	"testing/quick"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -229,18 +232,16 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 	assert.Contains(t, out, "let tags: Array[String val] val")
 	assert.Contains(t, out, "let parent: (Parent val | None)")
 	assert.Contains(t, out, "let status: Status")
-
-	// proto3 optional int32 is now supported.
 	assert.Contains(t, out, "let count: (I32 | None)")
 
-	// These shapes remain unsupported — confirm TODO comments, not constructor params.
-	stillUnsupported := []string{"type_a", "type_b", "metadata"}
-	for _, name := range stillUnsupported {
-		assert.Contains(t, out, "TODO protoc-gen-pony: field "+name,
-			"missing TODO for %q", name)
-		assert.NotContains(t, out, name+"': ",
-			"%q should be skipped from the constructor signature", name)
-	}
+	// The `kind` oneof (type_a + type_b) is now supported via oneof codegen.
+	assert.Contains(t, out, "let kind: ZooKind")
+	assert.NotContains(t, out, "TODO protoc-gen-pony: field type_a")
+	assert.NotContains(t, out, "TODO protoc-gen-pony: field type_b")
+
+	// map field remains unsupported.
+	assert.Contains(t, out, "TODO protoc-gen-pony: field metadata")
+	assert.NotContains(t, out, "metadata': ", "metadata should be skipped from constructor")
 }
 
 func TestEnumGeneration(t *testing.T) {
@@ -548,6 +549,316 @@ func TestCrossFileSameDirectoryRef(t *testing.T) {
 	// Sub-codec calls present.
 	assert.Contains(t, out, "AddressCodec.decode(WireReader(b))")
 	assert.Contains(t, out, "AddressCodec.encode(sub, v)")
+}
+
+func TestOneofWrapperTypes(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	// Wrapper classes for each oneof member.
+	assert.Contains(t, out, "class val ZooKindTypeA")
+	assert.Contains(t, out, "let value: String val")
+	assert.Contains(t, out, "new val create(value': String val = \"\") => value = value'")
+
+	assert.Contains(t, out, "class val ZooKindTypeB")
+	assert.Contains(t, out, "let value: I32")
+	assert.Contains(t, out, "new val create(value': I32 = 0) => value = value'")
+
+	// Type alias union includes None.
+	assert.Contains(t, out, "type ZooKind is (ZooKindTypeA | ZooKindTypeB | None)")
+}
+
+func TestOneofConstructorParam(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+	assert.Contains(t, out, "kind': ZooKind = None")
+	assert.Contains(t, out, "kind = kind'")
+}
+
+func TestOneofDecode(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	// Declare the oneof var.
+	assert.Contains(t, out, "var kind: ZooKind = None")
+
+	// String arm (type_a = field 4) wraps in ZooKindTypeA.
+	assert.Contains(t, out, "(4, WireLenDelim)")
+	assert.Contains(t, out, "| let v: String val => kind = ZooKindTypeA(v)")
+
+	// Int32 arm (type_b = field 5) wraps in ZooKindTypeB.
+	assert.Contains(t, out, "(5, WireVarint)")
+	assert.Contains(t, out, "| let v: I32 => kind = ZooKindTypeB(v)")
+
+	// Constructor call includes kind.
+	assert.Contains(t, out, "kind)")
+}
+
+func TestOneofEncode(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	assert.Contains(t, out, "match msg.kind")
+	assert.Contains(t, out, "| let v: ZooKindTypeA =>")
+	assert.Contains(t, out, "writer.write_tag(Tag(4, WireLenDelim))")
+	assert.Contains(t, out, "writer.write_string(v.value)")
+	assert.Contains(t, out, "| let v: ZooKindTypeB =>")
+	assert.Contains(t, out, "writer.write_tag(Tag(5, WireVarint))")
+	assert.Contains(t, out, "Scalar.write_int32(writer, v.value)")
+	assert.Contains(t, out, "| None => None")
+}
+
+func TestOneofWithMessageMember(t *testing.T) {
+	t.Parallel()
+
+	childField := field("child", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	childField.TypeName = proto.String(".pkg.Child")
+	childField.OneofIndex = proto.Int32(0)
+
+	numField := field("num", 3, descriptorpb.FieldDescriptorProto_TYPE_INT64)
+	numField.OneofIndex = proto.Int32(0)
+
+	file := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("pkg.proto"),
+		Package: proto.String("pkg"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Parent"),
+				Field: []*descriptorpb.FieldDescriptorProto{childField, numField},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("payload")},
+				},
+			},
+			{Name: proto.String("Child")},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "pkg.pony")
+
+	// Message member: no default in wrapper constructor (no = value).
+	assert.Contains(t, out, "class val ParentPayloadChild")
+	assert.Contains(t, out, "let value: Child val")
+	assert.Contains(t, out, "new val create(value': Child val) => value = value'")
+	assert.NotContains(t, out, "new val create(value': Child val =")
+
+	// Int64 member has default.
+	assert.Contains(t, out, "class val ParentPayloadNum")
+	assert.Contains(t, out, "new val create(value': I64 = 0)")
+
+	// Type alias.
+	assert.Contains(t, out, "type ParentPayload is (ParentPayloadChild | ParentPayloadNum | None)")
+
+	// Decode: message arm reads sub-codec.
+	assert.Contains(t, out, "match ChildCodec.decode(WireReader(b))")
+	assert.Contains(t, out, "| let v: Child val => payload = ParentPayloadChild(v)")
+
+	// Encode: message arm uses sub-writer.
+	assert.Contains(t, out, "| let v: ParentPayloadChild =>")
+	assert.Contains(t, out, "ChildCodec.encode(sub, v.value)")
+}
+
+func TestOneofUnsupportedWhenMemberIsWKT(t *testing.T) {
+	t.Parallel()
+
+	tsField := field("created_at", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	tsField.TypeName = proto.String(".google.protobuf.Timestamp")
+	tsField.OneofIndex = proto.Int32(0)
+	strField := field("label", 3, descriptorpb.FieldDescriptorProto_TYPE_STRING)
+	strField.OneofIndex = proto.Int32(0)
+
+	tsFile := &descriptorpb.FileDescriptorProto{
+		Name: proto.String("google/protobuf/timestamp.proto"), Package: proto.String("google.protobuf"),
+		Syntax:      proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Timestamp")}},
+	}
+	eventFile := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("event.proto"),
+		Package:    proto.String("event"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"google/protobuf/timestamp.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Event"),
+				Field: []*descriptorpb.FieldDescriptorProto{tsField, strField},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("when")},
+				},
+			},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{tsFile, eventFile}, "event.pony")
+
+	// Whole oneof stays TODO because one member (Timestamp) is WKT.
+	assert.Contains(t, out, "TODO protoc-gen-pony: field created_at")
+	assert.Contains(t, out, "TODO protoc-gen-pony: field label")
+	assert.NotContains(t, out, "type EventWhen")
+}
+
+func TestCrossDirectoryRef(t *testing.T) {
+	t.Parallel()
+
+	addrField := field("address", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	addrField.TypeName = proto.String(".common.Address")
+
+	personFile := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("geo/person.proto"),
+		Package:    proto.String("geo"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"common/address.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Person"),
+				Field: []*descriptorpb.FieldDescriptorProto{addrField},
+			},
+		},
+	}
+	addressFile := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("common/address.proto"),
+		Package: proto.String("common"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: proto.String("Address")},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{addressFile, personFile}, "geo/person.pony")
+
+	// use directive for the cross-directory dep.
+	assert.Contains(t, out, `use "../common"`)
+
+	// Field generated (not TODO).
+	assert.Contains(t, out, "let address: (Address val | None)")
+	assert.NotContains(t, out, "TODO protoc-gen-pony: field address")
+
+	// Codec calls generated.
+	assert.Contains(t, out, "AddressCodec.decode(WireReader(b))")
+	assert.Contains(t, out, "AddressCodec.encode(sub, v)")
+}
+
+func TestCrossDirectoryDedupedUse(t *testing.T) {
+	t.Parallel()
+
+	cityField := field("city", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	cityField.TypeName = proto.String(".common.City")
+	countryField := field("country", 3, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	countryField.TypeName = proto.String(".common.Country")
+
+	personFile := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("geo/person.proto"),
+		Package:    proto.String("geo"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"common/city.proto", "common/country.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Person"),
+				Field: []*descriptorpb.FieldDescriptorProto{cityField, countryField},
+			},
+		},
+	}
+	cityFile := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("common/city.proto"),
+		Package: proto.String("common"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: proto.String("City")},
+		},
+	}
+	countryFile := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("common/country.proto"),
+		Package: proto.String("common"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: proto.String("Country")},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{cityFile, countryFile, personFile}, "geo/person.pony")
+
+	// Only one use directive for common/ even though two deps come from there.
+	assert.Equal(t, 1, strings.Count(out, `use "../common"`))
+}
+
+func TestWKTRefEmitsTodo(t *testing.T) {
+	t.Parallel()
+
+	tsField := field("created_at", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	tsField.TypeName = proto.String(".google.protobuf.Timestamp")
+
+	tsFile := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("google/protobuf/timestamp.proto"),
+		Package: proto.String("google.protobuf"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: proto.String("Timestamp")},
+		},
+	}
+	eventFile := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("events/event.proto"),
+		Package:    proto.String("events"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"google/protobuf/timestamp.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Event"),
+				Field: []*descriptorpb.FieldDescriptorProto{tsField},
+			},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{tsFile, eventFile}, "events/event.pony")
+
+	// WKT field stays as TODO.
+	assert.Contains(t, out, "TODO protoc-gen-pony: field created_at")
+
+	// No use directive for WKT.
+	assert.NotContains(t, out, `use "google/protobuf"`)
+	assert.NotContains(t, out, `use "../google/protobuf"`)
+}
+
+// cleanDirSegs filters an arbitrary []string down to a valid proto directory
+// path (slash-separated ASCII alphanumeric components). Returns ("", false)
+// when no valid segments remain.
+func cleanDirSegs(segs []string) (string, bool) {
+	var out []string
+	for _, s := range segs {
+		clean := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			return -1
+		}, s)
+		if clean != "" {
+			out = append(out, clean)
+		}
+	}
+	if len(out) == 0 {
+		return "", false
+	}
+	return strings.Join(out, "/"), true
+}
+
+// TestProtoRelDir_Inverse verifies that joining `from` with the result of
+// protoRelDir always resolves back to `to`.
+func TestProtoRelDir_Inverse(t *testing.T) {
+	f := func(fromSegs, toSegs []string) bool {
+		from, ok1 := cleanDirSegs(fromSegs)
+		to, ok2 := cleanDirSegs(toSegs)
+		if !ok1 || !ok2 || from == to {
+			return true // skip: preconditions not met
+		}
+		return path.Join(from, protoRelDir(from, to)) == to
+	}
+	if err := quick.Check(f, &quick.Config{MaxCount: 2000}); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestSnakeToPascal_NeverContainsUnderscore verifies that snakeToPascal removes
+// all underscores regardless of the input string.
+func TestSnakeToPascal_NeverContainsUnderscore(t *testing.T) {
+	f := func(s string) bool {
+		return !strings.Contains(snakeToPascal(s), "_")
+	}
+	if err := quick.Check(f, &quick.Config{MaxCount: 2000}); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestInjectGoImportStubs_PreservesExistingParameters(t *testing.T) {
