@@ -42,8 +42,13 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 
 	ctx := &genCtx{plugin: plugin, file: file, g: g}
 
-	if useDirs := ctx.crossDirUseDirectives(); len(useDirs) > 0 {
-		for _, u := range useDirs {
+	useDirectives := ctx.crossDirUseDirectives()
+	if ctx.fileHasMaps() {
+		useDirectives = append(useDirectives, "collections")
+		sort.Strings(useDirectives)
+	}
+	if len(useDirectives) > 0 {
+		for _, u := range useDirectives {
 			g.P(`use "`, u, `"`)
 		}
 		g.P()
@@ -165,7 +170,11 @@ func (ctx *genCtx) emitDecode(className string, supported []*protogen.Field, one
 	ctx.g.P(`  fun decode(reader: WireReader ref): (`, className, ` val | WireError) =>`)
 	for _, field := range supported {
 		name := string(field.Desc.Name())
-		if field.Desc.IsList() {
+		if field.Desc.IsMap() {
+			kType := ctx.mapKeyPonyType(field.Message.Fields[0])
+			vType := ctx.mapValuePonyType(field.Message.Fields[1])
+			ctx.g.P(`    var `, name, `: Map[`, kType, `, `, vType, `] trn = recover trn Map[`, kType, `, `, vType, `] end`)
+		} else if field.Desc.IsList() {
 			elem := ctx.elemPonyType(field)
 			ctx.g.P(`    var `, name, `: Array[`, elem, `] trn = recover trn Array[`, elem, `] end`)
 		} else {
@@ -204,6 +213,8 @@ func (ctx *genCtx) emitDecodeArm(field *protogen.Field) {
 	num := field.Desc.Number()
 
 	switch {
+	case field.Desc.IsMap():
+		ctx.emitMapDecodeArm(field, name, num)
 	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.MessageKind:
 		// non-packed: one tag + len-delim per element
 		codec := ponyMessageClassName(field.Message) + "Codec"
@@ -307,6 +318,59 @@ func (ctx *genCtx) emitDecodeArm(field *protogen.Field) {
 	}
 }
 
+func (ctx *genCtx) emitMapDecodeArm(field *protogen.Field, name string, num protoreflect.FieldNumber) {
+	keyField := field.Message.Fields[0]
+	valField := field.Message.Fields[1]
+	keySpec := scalarSpecs[keyField.Desc.Kind()]
+	kType := ctx.mapKeyPonyType(keyField)
+	vType := ctx.mapValuePonyType(valField)
+	keyReadExpr := strings.Replace(keySpec.readExpr, "reader", "entry_sub", 1)
+
+	ctx.g.P(`        | (`, num, `, WireLenDelim) =>`)
+	ctx.g.P(`          match reader.read_len_delim()`)
+	ctx.g.P(`          | let b: Array[U8] val =>`)
+	ctx.g.P(`            let entry_sub = WireReader(b)`)
+	ctx.g.P(`            var entry_k: `, kType, ` = `, keySpec.ponyDefault)
+	ctx.g.P(`            var entry_v: `, vType, ` = `, ctx.mapValueDefault(valField))
+	ctx.g.P(`            while not entry_sub.at_end() do`)
+	ctx.g.P(`              match entry_sub.read_tag()`)
+	ctx.g.P(`              | let t: Tag =>`)
+	ctx.g.P(`                match (t.field_number, t.wire_type)`)
+	ctx.g.P(`                | (1, `, keySpec.wireType, `) =>`)
+	ctx.g.P(`                  match `, keyReadExpr)
+	ctx.g.P(`                  | let kk: `, kType, ` => entry_k = kk`)
+	ctx.g.P(`                  | let e: WireError => return e`)
+	ctx.g.P(`                  end`)
+	if valField.Desc.Kind() == protoreflect.EnumKind {
+		fromValue := ponyEnumFromValueName(valField.Enum)
+		ctx.g.P(`                | (2, WireVarint) =>`)
+		ctx.g.P(`                  match Scalar.read_int32(entry_sub)`)
+		ctx.g.P(`                  | let vv: I32 => entry_v = `, fromValue, `(vv)`)
+		ctx.g.P(`                  | let e: WireError => return e`)
+		ctx.g.P(`                  end`)
+	} else {
+		valSpec := scalarSpecs[valField.Desc.Kind()]
+		valReadExpr := strings.Replace(valSpec.readExpr, "reader", "entry_sub", 1)
+		ctx.g.P(`                | (2, `, valSpec.wireType, `) =>`)
+		ctx.g.P(`                  match `, valReadExpr)
+		ctx.g.P(`                  | let vv: `, valSpec.ponyType, ` => entry_v = vv`)
+		ctx.g.P(`                  | let e: WireError => return e`)
+		ctx.g.P(`                  end`)
+	}
+	ctx.g.P(`                else`)
+	ctx.g.P(`                  match entry_sub.skip(t.wire_type)`)
+	ctx.g.P(`                  | None => None`)
+	ctx.g.P(`                  | let e: WireError => return e`)
+	ctx.g.P(`                  end`)
+	ctx.g.P(`                end`)
+	ctx.g.P(`              | let e: WireError => return e`)
+	ctx.g.P(`              end`)
+	ctx.g.P(`            end`)
+	ctx.g.P(`            `, name, `(entry_k) = entry_v`)
+	ctx.g.P(`          | let e: WireError => return e`)
+	ctx.g.P(`          end`)
+}
+
 func (ctx *genCtx) emitConstructorCall(className string, supported []*protogen.Field, oneofs []*protogen.Oneof) {
 	if len(supported) == 0 && len(oneofs) == 0 {
 		ctx.g.P(`    `, className)
@@ -314,7 +378,7 @@ func (ctx *genCtx) emitConstructorCall(className string, supported []*protogen.F
 	}
 	parts := make([]string, 0, len(supported)+len(oneofs))
 	for _, field := range supported {
-		if field.Desc.IsList() {
+		if field.Desc.IsList() || field.Desc.IsMap() {
 			parts = append(parts, "consume "+string(field.Desc.Name()))
 		} else {
 			parts = append(parts, string(field.Desc.Name()))
@@ -345,6 +409,8 @@ func (ctx *genCtx) emitEncodeField(field *protogen.Field) {
 	num := field.Desc.Number()
 
 	switch {
+	case field.Desc.IsMap():
+		ctx.emitMapEncodeField(field, ref, num)
 	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.MessageKind:
 		// non-packed: one tag + len-delim per element (proto3 repeated message)
 		codec := ponyMessageClassName(field.Message) + "Codec"
@@ -408,6 +474,36 @@ func (ctx *genCtx) emitEncodeField(field *protogen.Field) {
 		ctx.g.P(`      `, fmt.Sprintf(spec.writeFmt, ref))
 		ctx.g.P(`    end`)
 	}
+}
+
+func (ctx *genCtx) emitMapEncodeField(field *protogen.Field, ref string, num protoreflect.FieldNumber) {
+	keyField := field.Message.Fields[0]
+	valField := field.Message.Fields[1]
+	keySpec := scalarSpecs[keyField.Desc.Kind()]
+
+	ctx.g.P(`    for (k, v) in `, ref, `.pairs() do`)
+	ctx.g.P(`      let sub = WireWriter`)
+	if keyField.Desc.Kind() == protoreflect.StringKind {
+		ctx.g.P(`      sub.write_tag(Tag(1, WireLenDelim))`)
+		ctx.g.P(`      sub.write_string(k)`)
+	} else {
+		ctx.g.P(`      sub.write_tag(Tag(1, `, keySpec.wireType, `))`)
+		ctx.g.P(`      `, fmt.Sprintf(strings.Replace(keySpec.writeFmt, "writer", "sub", 1), "k"))
+	}
+	if valField.Desc.Kind() == protoreflect.EnumKind {
+		ctx.g.P(`      sub.write_tag(Tag(2, WireVarint))`)
+		ctx.g.P(`      Scalar.write_int32(sub, v.value())`)
+	} else if valField.Desc.Kind() == protoreflect.StringKind {
+		ctx.g.P(`      sub.write_tag(Tag(2, WireLenDelim))`)
+		ctx.g.P(`      sub.write_string(v)`)
+	} else {
+		valSpec := scalarSpecs[valField.Desc.Kind()]
+		ctx.g.P(`      sub.write_tag(Tag(2, `, valSpec.wireType, `))`)
+		ctx.g.P(`      `, fmt.Sprintf(strings.Replace(valSpec.writeFmt, "writer", "sub", 1), "v"))
+	}
+	ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+	ctx.g.P(`      writer.write_len_delim(sub.done())`)
+	ctx.g.P(`    end`)
 }
 
 func (ctx *genCtx) emitPackedEncode(ref string, num protoreflect.FieldNumber, writeOp string) {
@@ -580,6 +676,26 @@ func (ctx *genCtx) supportedRealOneofs(msg *protogen.Message) []*protogen.Oneof 
 	return result
 }
 
+// isSupportedMapField returns true for map fields whose value kind we can
+// generate — scalar and non-WKT enum. Message values have no proto3 zero and
+// would require a default() on the codec; they stay TODO.
+func (ctx *genCtx) isSupportedMapField(field *protogen.Field) bool {
+	if field.Message == nil || len(field.Message.Fields) != 2 {
+		return false
+	}
+	valField := field.Message.Fields[1]
+	switch valField.Desc.Kind() {
+	case protoreflect.GroupKind, protoreflect.MessageKind:
+		return false
+	case protoreflect.EnumKind:
+		if valField.Enum == nil {
+			return false
+		}
+		return !isWKT(valField.Enum.Desc.ParentFile())
+	}
+	return true
+}
+
 // isSupportedOneofMember applies the field-kind checks to a oneof member
 // without the real-oneof gate that isSupported enforces.
 func (ctx *genCtx) isSupportedOneofMember(field *protogen.Field) bool {
@@ -619,6 +735,24 @@ func (ctx *genCtx) oneofMemberDefault(field *protogen.Field) string {
 	case protoreflect.MessageKind:
 		return ""
 	case protoreflect.EnumKind:
+		return ponyEnumZeroValuePrimitive(field.Enum)
+	}
+	return scalarSpecs[field.Desc.Kind()].ponyDefault
+}
+
+func (ctx *genCtx) mapKeyPonyType(field *protogen.Field) string {
+	return scalarSpecs[field.Desc.Kind()].ponyType
+}
+
+func (ctx *genCtx) mapValuePonyType(field *protogen.Field) string {
+	if field.Desc.Kind() == protoreflect.EnumKind {
+		return ponyEnumTypeName(field.Enum)
+	}
+	return scalarSpecs[field.Desc.Kind()].ponyType
+}
+
+func (ctx *genCtx) mapValueDefault(field *protogen.Field) string {
+	if field.Desc.Kind() == protoreflect.EnumKind {
 		return ponyEnumZeroValuePrimitive(field.Enum)
 	}
 	return scalarSpecs[field.Desc.Kind()].ponyDefault
@@ -684,12 +818,12 @@ func (ctx *genCtx) emitEnum(enum *protogen.Enum, namePrefix string) {
 }
 
 // isSupported returns true for field shapes we generate code for.
-// Out: maps, real oneofs, groups, WKT message/enum refs.
+// Out: real oneofs, groups, WKT message/enum refs, map<K, message> (no zero value).
 // In: scalars (singular + repeated), messages (singular + repeated, any dir),
-// enums (singular + repeated, any dir), proto3 optional.
+// enums (singular + repeated, any dir), proto3 optional, map<K, scalar|enum>.
 func (ctx *genCtx) isSupported(field *protogen.Field) bool {
 	if field.Desc.IsMap() {
-		return false
+		return ctx.isSupportedMapField(field)
 	}
 	if field.Oneof != nil && !field.Desc.HasOptionalKeyword() {
 		return false
@@ -701,6 +835,27 @@ func (ctx *genCtx) isSupported(field *protogen.Field) bool {
 // hand-written runtime shims that don't exist yet, so these refs stay TODO.
 func isWKT(f protoreflect.FileDescriptor) bool {
 	return strings.HasPrefix(f.Path(), "google/protobuf/")
+}
+
+func (ctx *genCtx) fileHasMaps() bool {
+	var check func([]*protogen.Message) bool
+	check = func(msgs []*protogen.Message) bool {
+		for _, msg := range msgs {
+			if msg.Desc.IsMapEntry() {
+				continue
+			}
+			for _, f := range msg.Fields {
+				if f.Desc.IsMap() && ctx.isSupported(f) {
+					return true
+				}
+			}
+			if check(msg.Messages) {
+				return true
+			}
+		}
+		return false
+	}
+	return check(ctx.file.Messages)
 }
 
 // crossDirUseDirectives returns sorted relative-path strings for Pony `use`
@@ -724,6 +879,16 @@ func (ctx *genCtx) crossDirUseDirectives() []string {
 	}
 
 	checkField := func(f *protogen.Field) {
+		if f.Desc.IsMap() {
+			// Map entry message is always co-located; only value enums can cross dirs.
+			if f.Message != nil && len(f.Message.Fields) == 2 {
+				valField := f.Message.Fields[1]
+				if valField.Desc.Kind() == protoreflect.EnumKind && valField.Enum != nil {
+					addDepPath(valField.Enum.Desc.ParentFile().Path())
+				}
+			}
+			return
+		}
 		switch f.Desc.Kind() {
 		case protoreflect.MessageKind:
 			if f.Message != nil {
@@ -802,11 +967,15 @@ func (ctx *genCtx) supportedFields(fields []*protogen.Field) []*protogen.Field {
 }
 
 // fieldPonyType returns the Pony type declaration for a field.
-// Repeated fields become Array[elem] val.
+// Map fields become Map[K, V] val. Repeated fields become Array[elem] val.
 // Singular message fields become (ChildMsg val | None).
-// Singular enum fields become the enum type alias.
-// Scalars use scalarSpecs.
+// Singular enum fields become the enum type alias. Scalars use scalarSpecs.
 func (ctx *genCtx) fieldPonyType(field *protogen.Field) string {
+	if field.Desc.IsMap() {
+		kType := ctx.mapKeyPonyType(field.Message.Fields[0])
+		vType := ctx.mapValuePonyType(field.Message.Fields[1])
+		return "Map[" + kType + ", " + vType + "] val"
+	}
 	if field.Desc.IsList() {
 		return "Array[" + ctx.elemPonyType(field) + "] val"
 	}
@@ -839,6 +1008,11 @@ func (ctx *genCtx) elemPonyType(field *protogen.Field) string {
 
 // fieldPonyDefault returns the default value expression for a field.
 func (ctx *genCtx) fieldPonyDefault(field *protogen.Field) string {
+	if field.Desc.IsMap() {
+		kType := ctx.mapKeyPonyType(field.Message.Fields[0])
+		vType := ctx.mapValuePonyType(field.Message.Fields[1])
+		return "recover val Map[" + kType + ", " + vType + "] end"
+	}
 	if field.Desc.IsList() {
 		return "recover val Array[" + ctx.elemPonyType(field) + "] end"
 	}

@@ -239,9 +239,9 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 	assert.NotContains(t, out, "TODO protoc-gen-pony: field type_a")
 	assert.NotContains(t, out, "TODO protoc-gen-pony: field type_b")
 
-	// map field remains unsupported.
-	assert.Contains(t, out, "TODO protoc-gen-pony: field metadata")
-	assert.NotContains(t, out, "metadata': ", "metadata should be skipped from constructor")
+	// map<string, int32> is now generated.
+	assert.Contains(t, out, "let metadata: Map[String val, I32] val")
+	assert.NotContains(t, out, "TODO protoc-gen-pony: field metadata")
 }
 
 func TestEnumGeneration(t *testing.T) {
@@ -859,6 +859,130 @@ func TestSnakeToPascal_NeverContainsUnderscore(t *testing.T) {
 	if err := quick.Check(f, &quick.Config{MaxCount: 2000}); err != nil {
 		t.Error(err)
 	}
+}
+
+func TestMapField_ClassAndCodec(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	// Class field and constructor default.
+	assert.Contains(t, out, "let metadata: Map[String val, I32] val")
+	assert.Contains(t, out, "metadata': Map[String val, I32] val = recover val Map[String val, I32] end")
+
+	// Decode: trn accumulator, entry sub-reader, key/value arms, final assign.
+	assert.Contains(t, out, "var metadata: Map[String val, I32] trn = recover trn Map[String val, I32] end")
+	assert.Contains(t, out, "let entry_sub = WireReader(b)")
+	assert.Contains(t, out, "var entry_k: String val")
+	assert.Contains(t, out, "var entry_v: I32")
+	assert.Contains(t, out, "metadata(entry_k) = entry_v")
+	assert.Contains(t, out, "consume metadata")
+
+	// Encode: pairs() loop, always-write key + value.
+	assert.Contains(t, out, "for (k, v) in msg.metadata.pairs() do")
+	assert.Contains(t, out, "sub.write_string(k)")
+	assert.Contains(t, out, "Scalar.write_int32(sub, v)")
+}
+
+func TestMapField_UseCollections(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+	assert.Contains(t, out, `use "collections"`)
+}
+
+func TestMapField_MessageValueTodo(t *testing.T) {
+	t.Parallel()
+
+	entryField := field("items", 1, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	entryField.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+	entryField.TypeName = proto.String(".pkg.Container.ItemsEntry")
+	mapEntry := &descriptorpb.DescriptorProto{
+		Name: proto.String("ItemsEntry"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			field("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+			{
+				Name:     proto.String("value"),
+				Number:   proto.Int32(2),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".pkg.Item"),
+				JsonName: proto.String("value"),
+			},
+		},
+		Options: &descriptorpb.MessageOptions{MapEntry: proto.Bool(true)},
+	}
+	file := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("pkg.proto"),
+		Package: proto.String("pkg"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:       proto.String("Container"),
+				Field:      []*descriptorpb.FieldDescriptorProto{entryField},
+				NestedType: []*descriptorpb.DescriptorProto{mapEntry},
+			},
+			{Name: proto.String("Item")},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "pkg.pony")
+	assert.Contains(t, out, "TODO protoc-gen-pony: field items")
+	assert.NotContains(t, out, `use "collections"`)
+}
+
+func TestMapField_EnumValue(t *testing.T) {
+	t.Parallel()
+
+	entryField := field("by_status", 1, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	entryField.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+	entryField.TypeName = proto.String(".pkg.Lookup.ByStatusEntry")
+	mapEntry := &descriptorpb.DescriptorProto{
+		Name: proto.String("ByStatusEntry"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			field("key", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING),
+			{
+				Name:     proto.String("value"),
+				Number:   proto.Int32(2),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_ENUM.Enum(),
+				TypeName: proto.String(".pkg.Color"),
+				JsonName: proto.String("value"),
+			},
+		},
+		Options: &descriptorpb.MessageOptions{MapEntry: proto.Bool(true)},
+	}
+	file := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("pkg.proto"),
+		Package: proto.String("pkg"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:       proto.String("Lookup"),
+				Field:      []*descriptorpb.FieldDescriptorProto{entryField},
+				NestedType: []*descriptorpb.DescriptorProto{mapEntry},
+			},
+		},
+		EnumType: []*descriptorpb.EnumDescriptorProto{
+			{
+				Name: proto.String("Color"),
+				Value: []*descriptorpb.EnumValueDescriptorProto{
+					{Name: proto.String("RED"), Number: proto.Int32(0)},
+					{Name: proto.String("BLUE"), Number: proto.Int32(1)},
+				},
+			},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "pkg.pony")
+
+	// Class field uses enum type as map value.
+	assert.Contains(t, out, "let by_status: Map[String val, Color] val")
+
+	// Decode: FromValue applied to I32.
+	assert.Contains(t, out, "| let vv: I32 => entry_v = ColorFromValue(vv)")
+
+	// Encode: .value() call on enum.
+	assert.Contains(t, out, "Scalar.write_int32(sub, v.value())")
+
+	// use "collections" emitted.
+	assert.Contains(t, out, `use "collections"`)
 }
 
 func TestInjectGoImportStubs_PreservesExistingParameters(t *testing.T) {
