@@ -660,36 +660,39 @@ func TestOneofWithMessageMember(t *testing.T) {
 func TestOneofUnsupportedWhenMemberIsWKT(t *testing.T) {
 	t.Parallel()
 
-	tsField := field("created_at", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
-	tsField.TypeName = proto.String(".google.protobuf.Timestamp")
-	tsField.OneofIndex = proto.Int32(0)
+	// google/protobuf/struct.proto is in the blocklist — a Value oneof member
+	// keeps the whole oneof as TODO.
+	valueField := field("payload", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	valueField.TypeName = proto.String(".google.protobuf.Value")
+	valueField.OneofIndex = proto.Int32(0)
 	strField := field("label", 3, descriptorpb.FieldDescriptorProto_TYPE_STRING)
 	strField.OneofIndex = proto.Int32(0)
 
-	tsFile := &descriptorpb.FileDescriptorProto{
-		Name: proto.String("google/protobuf/timestamp.proto"), Package: proto.String("google.protobuf"),
+	structFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("google/protobuf/struct.proto"),
+		Package:     proto.String("google.protobuf"),
 		Syntax:      proto.String("proto3"),
-		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Timestamp")}},
+		MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Value")}},
 	}
 	eventFile := &descriptorpb.FileDescriptorProto{
 		Name:       proto.String("event.proto"),
 		Package:    proto.String("event"),
 		Syntax:     proto.String("proto3"),
-		Dependency: []string{"google/protobuf/timestamp.proto"},
+		Dependency: []string{"google/protobuf/struct.proto"},
 		MessageType: []*descriptorpb.DescriptorProto{
 			{
 				Name:  proto.String("Event"),
-				Field: []*descriptorpb.FieldDescriptorProto{tsField, strField},
+				Field: []*descriptorpb.FieldDescriptorProto{valueField, strField},
 				OneofDecl: []*descriptorpb.OneofDescriptorProto{
 					{Name: proto.String("when")},
 				},
 			},
 		},
 	}
-	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{tsFile, eventFile}, "event.pony")
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{structFile, eventFile}, "event.pony")
 
-	// Whole oneof stays TODO because one member (Timestamp) is WKT.
-	assert.Contains(t, out, "TODO protoc-gen-pony: field created_at")
+	// Whole oneof stays TODO because one member (Value from struct.proto) is blocked.
+	assert.Contains(t, out, "TODO protoc-gen-pony: field payload")
 	assert.Contains(t, out, "TODO protoc-gen-pony: field label")
 	assert.NotContains(t, out, "type EventWhen")
 }
@@ -779,6 +782,42 @@ func TestCrossDirectoryDedupedUse(t *testing.T) {
 func TestWKTRefEmitsTodo(t *testing.T) {
 	t.Parallel()
 
+	// google/protobuf/struct.proto is in the blocklist (circular Value type).
+	valueField := field("payload", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	valueField.TypeName = proto.String(".google.protobuf.Value")
+
+	structFile := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("google/protobuf/struct.proto"),
+		Package: proto.String("google.protobuf"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: proto.String("Value")},
+		},
+	}
+	eventFile := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("events/event.proto"),
+		Package:    proto.String("events"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"google/protobuf/struct.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Event"),
+				Field: []*descriptorpb.FieldDescriptorProto{valueField},
+			},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{structFile, eventFile}, "events/event.pony")
+
+	// Blocked WKT field stays as TODO.
+	assert.Contains(t, out, "TODO protoc-gen-pony: field payload")
+
+	// No use directive for blocked WKT.
+	assert.NotContains(t, out, `use "../google/protobuf"`)
+}
+
+func TestWKT_TimestampGenerates(t *testing.T) {
+	t.Parallel()
+
 	tsField := field("created_at", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
 	tsField.TypeName = proto.String(".google.protobuf.Timestamp")
 
@@ -787,7 +826,13 @@ func TestWKTRefEmitsTodo(t *testing.T) {
 		Package: proto.String("google.protobuf"),
 		Syntax:  proto.String("proto3"),
 		MessageType: []*descriptorpb.DescriptorProto{
-			{Name: proto.String("Timestamp")},
+			{
+				Name: proto.String("Timestamp"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					field("seconds", 1, descriptorpb.FieldDescriptorProto_TYPE_INT64),
+					field("nanos", 2, descriptorpb.FieldDescriptorProto_TYPE_INT32),
+				},
+			},
 		},
 	}
 	eventFile := &descriptorpb.FileDescriptorProto{
@@ -804,12 +849,12 @@ func TestWKTRefEmitsTodo(t *testing.T) {
 	}
 	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{tsFile, eventFile}, "events/event.pony")
 
-	// WKT field stays as TODO.
-	assert.Contains(t, out, "TODO protoc-gen-pony: field created_at")
+	// Timestamp generates as a real class (not TODO).
+	assert.Contains(t, out, "let created_at: (Timestamp val | None)")
+	assert.NotContains(t, out, "TODO protoc-gen-pony: field created_at")
 
-	// No use directive for WKT.
-	assert.NotContains(t, out, `use "google/protobuf"`)
-	assert.NotContains(t, out, `use "../google/protobuf"`)
+	// Cross-dir use directive emitted.
+	assert.Contains(t, out, `use "../google/protobuf"`)
 }
 
 // cleanDirSegs filters an arbitrary []string down to a valid proto directory
@@ -889,7 +934,7 @@ func TestMapField_UseCollections(t *testing.T) {
 	assert.Contains(t, out, `use "collections"`)
 }
 
-func TestMapField_MessageValueTodo(t *testing.T) {
+func TestMapField_MessageValue(t *testing.T) {
 	t.Parallel()
 
 	entryField := field("items", 1, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
@@ -924,8 +969,23 @@ func TestMapField_MessageValueTodo(t *testing.T) {
 		},
 	}
 	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "pkg.pony")
-	assert.Contains(t, out, "TODO protoc-gen-pony: field items")
-	assert.NotContains(t, out, `use "collections"`)
+
+	// map<string, Item> now generates.
+	assert.Contains(t, out, "let items: Map[String val, Item val] val")
+	assert.NotContains(t, out, "TODO protoc-gen-pony: field items")
+
+	// codec.default() emitted for Item and Container.
+	assert.Contains(t, out, "fun default(): Item val => Item")
+	assert.Contains(t, out, "fun default(): Container val => Container")
+
+	// Decode: sub-codec with ItemCodec.default() as initial value.
+	assert.Contains(t, out, "var entry_v: Item val = ItemCodec.default()")
+	assert.Contains(t, out, "match ItemCodec.decode(WireReader(vb))")
+
+	// Encode: sub-writer for value.
+	assert.Contains(t, out, "ItemCodec.encode(vsub, v)")
+
+	assert.Contains(t, out, `use "collections"`)
 }
 
 func TestMapField_EnumValue(t *testing.T) {

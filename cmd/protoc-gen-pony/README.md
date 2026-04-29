@@ -55,11 +55,25 @@ sources][runtime].
 
 ## Coverage
 
-v1 supports singular implicit-presence proto3 scalars (bool, int32/64,
-uint32/64, sint32/64, fixed32/64, sfixed32/64, float, double, string,
-bytes). Repeated fields, `optional` explicit presence, oneofs, maps,
-embedded messages, and enums emit a `// TODO protoc-gen-pony` comment
-until the corresponding codegen lands. Services (gRPC) are out of scope.
+Supported (no `TODO` comments emitted):
+
+- All proto3 scalar types — bool, int32/64, uint32/64, sint32/64,
+  fixed32/64, sfixed32/64, float, double, string, bytes
+- Enums (primitives + type alias + `FromValue` dispatcher + `Raw` fallback)
+- Singular and repeated embedded messages
+- proto3 `optional` explicit presence (`(T | None)` type)
+- Real `oneof` fields (wrapper class per member, union type alias)
+- `map<K, V>` where V is a scalar, enum, or non-blocked message
+- Cross-directory `use` directives (relative path, auto-deduped)
+- Well-known types: Timestamp, Duration, Any, FieldMask, wrappers, Empty, etc.
+  generate as regular proto3 messages with no special treatment
+
+**Known limitations:**
+
+- `google/protobuf/struct.proto`, `type.proto`, `api.proto`, `descriptor.proto`
+  stay as `TODO` — circular or JSON-only types not representable in plain proto3
+- JSON-specific WKT encoding (Timestamp as RFC 3339, etc.) is out of scope
+- Services (gRPC stubs) are not generated
 
 [buf]: https://buf.build
 [runtime]: https://github.com/TrogonStack/protobuf-pony
