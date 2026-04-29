@@ -148,9 +148,9 @@ func TestEmptyMessage(t *testing.T) {
 	assert.Contains(t, out, "primitive EmptyCodec")
 }
 
-func TestUnsupportedShapesEmitTodo(t *testing.T) {
-	t.Parallel()
-
+// zooFileProto is a shared fixture for tests that need same-file message,
+// enum, repeated, and unsupported shapes together.
+func zooFileProto() *descriptorpb.FileDescriptorProto {
 	tags := field("tags", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING)
 	tags.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
 
@@ -188,7 +188,7 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 		Options: &descriptorpb.MessageOptions{MapEntry: proto.Bool(true)},
 	}
 
-	file := &descriptorpb.FileDescriptorProto{
+	return &descriptorpb.FileDescriptorProto{
 		Name:    proto.String("zoo.proto"),
 		Package: proto.String("zoo"),
 		Syntax:  proto.String("proto3"),
@@ -217,18 +217,140 @@ func TestUnsupportedShapesEmitTodo(t *testing.T) {
 			},
 		},
 	}
+}
 
-	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "zoo.pony")
+func TestUnsupportedShapesEmitTodo(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
 
 	assert.Contains(t, out, "let id: I32")
 
-	unsupported := []string{"tags", "count", "type_a", "type_b", "parent", "status", "metadata"}
-	for _, name := range unsupported {
+	// These shapes are now generated — confirm they are NOT TODO comments.
+	assert.Contains(t, out, "let tags: Array[String val] val")
+	assert.Contains(t, out, "let parent: (Parent val | None)")
+	assert.Contains(t, out, "let status: Status")
+
+	// proto3 optional int32 is now supported.
+	assert.Contains(t, out, "let count: (I32 | None)")
+
+	// These shapes remain unsupported — confirm TODO comments, not constructor params.
+	stillUnsupported := []string{"type_a", "type_b", "metadata"}
+	for _, name := range stillUnsupported {
 		assert.Contains(t, out, "TODO protoc-gen-pony: field "+name,
 			"missing TODO for %q", name)
 		assert.NotContains(t, out, name+"': ",
 			"%q should be skipped from the constructor signature", name)
 	}
+}
+
+func TestEnumGeneration(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	// Primitives for each enum value.
+	assert.Contains(t, out, "primitive Unknown   fun value(): I32 => 0")
+	assert.Contains(t, out, "primitive Active   fun value(): I32 => 1")
+
+	// Type alias union.
+	assert.Contains(t, out, "type Status is (Unknown | Active)")
+
+	// FromValue dispatcher with zero-value fallback.
+	assert.Contains(t, out, "primitive StatusFromValue")
+	assert.Contains(t, out, "| 1 => Active")
+	assert.Contains(t, out, "else Unknown")
+}
+
+func TestEnumField_ClassAndCodec(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	// Class declaration and constructor default.
+	assert.Contains(t, out, "let status: Status")
+	assert.Contains(t, out, "status': Status = Unknown")
+
+	// Decode: reads an I32 and applies FromValue.
+	assert.Contains(t, out, "status = StatusFromValue(v)")
+
+	// Encode: skips zero value.
+	assert.Contains(t, out, "if msg.status.value() != 0 then")
+	assert.Contains(t, out, "Scalar.write_int32(writer, msg.status.value())")
+}
+
+func TestMessageField_ClassAndCodec(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	// Class declaration and constructor default.
+	assert.Contains(t, out, "let parent: (Parent val | None)")
+	assert.Contains(t, out, "parent': (Parent val | None) = None")
+
+	// Decode: reads len-delim bytes, hands to sub-codec.
+	assert.Contains(t, out, "match ParentCodec.decode(WireReader(b))")
+	assert.Contains(t, out, "| let v: Parent val => parent = v")
+
+	// Encode: match on None, emit sub-writer only when present.
+	assert.Contains(t, out, "match msg.parent")
+	assert.Contains(t, out, "| let v: Parent val =>")
+	assert.Contains(t, out, "ParentCodec.encode(sub, v)")
+}
+
+func TestRepeatedScalarField(t *testing.T) {
+	t.Parallel()
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{zooFileProto()}, "zoo.pony")
+
+	// Class field and constructor default.
+	assert.Contains(t, out, "let tags: Array[String val] val")
+	assert.Contains(t, out, "tags': Array[String val] val = recover val Array[String val] end")
+
+	// Decode: trn accumulator + packed sub-reader loop.
+	assert.Contains(t, out, "var tags: Array[String val] trn = recover trn Array[String val] end")
+	assert.Contains(t, out, "let sub = WireReader(b)")
+	assert.Contains(t, out, "tags.push(v)")
+
+	// Constructor call consumes the trn.
+	assert.Contains(t, out, "consume tags")
+
+	// Encode: gate on non-empty, packed sub-writer.
+	assert.Contains(t, out, "if msg.tags.size() > 0 then")
+	assert.Contains(t, out, "sub.write_string(v)")
+	assert.Contains(t, out, "writer.write_tag(Tag(2, WireLenDelim))")
+}
+
+func TestRepeatedMessageField(t *testing.T) {
+	t.Parallel()
+
+	item := field("item", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	item.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+	item.TypeName = proto.String(".pkg.Item")
+
+	file := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("pkg.proto"),
+		Package: proto.String("pkg"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Container"),
+				Field: []*descriptorpb.FieldDescriptorProto{item},
+			},
+			{Name: proto.String("Item")},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "pkg.pony")
+
+	// Class field and default.
+	assert.Contains(t, out, "let item: Array[Item val] val")
+	assert.Contains(t, out, "item': Array[Item val] val = recover val Array[Item val] end")
+
+	// Decode: trn accumulator, per-entry sub-codec.
+	assert.Contains(t, out, "var item: Array[Item val] trn = recover trn Array[Item val] end")
+	assert.Contains(t, out, "match ItemCodec.decode(WireReader(b))")
+	assert.Contains(t, out, "| let v: Item val => item.push(v)")
+	assert.Contains(t, out, "consume item")
+
+	// Encode: one tag+len-delim per element.
+	assert.Contains(t, out, "for v in msg.item.values() do")
+	assert.Contains(t, out, "ItemCodec.encode(sub, v)")
+	assert.Contains(t, out, "writer.write_tag(Tag(2, WireLenDelim))")
 }
 
 func TestNestedMessageFlatNaming(t *testing.T) {
@@ -267,6 +389,121 @@ func TestFileHeaderHasSourceComment(t *testing.T) {
 // appearing verbatim after the injected stubs — protogen's later-wins
 // semantics depend on it. Lock in: nothing dropped or reordered, including
 // empty values and duplicates.
+func TestOptionalScalarField(t *testing.T) {
+	t.Parallel()
+
+	score := field("score", 2, descriptorpb.FieldDescriptorProto_TYPE_INT32)
+	score.Proto3Optional = proto.Bool(true)
+	score.OneofIndex = proto.Int32(0)
+
+	file := &descriptorpb.FileDescriptorProto{
+		Name:   proto.String("player.proto"),
+		Syntax: proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Player"),
+				Field: []*descriptorpb.FieldDescriptorProto{score},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("_score")},
+				},
+			},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "player.pony")
+
+	// Class field and constructor default.
+	assert.Contains(t, out, "let score: (I32 | None)")
+	assert.Contains(t, out, "score': (I32 | None) = None")
+
+	// Decode var: (I32 | None)
+	assert.Contains(t, out, "var score: (I32 | None) = None")
+
+	// Encode: match on None (explicit presence — zero is emitted when set).
+	assert.Contains(t, out, "match msg.score")
+	assert.Contains(t, out, "| let v: I32 =>")
+	assert.NotContains(t, out, "if msg.score != 0")
+}
+
+func TestOptionalEnumField(t *testing.T) {
+	t.Parallel()
+
+	status := field("status", 1, descriptorpb.FieldDescriptorProto_TYPE_ENUM)
+	status.TypeName = proto.String(".opt_test.Color")
+	status.Proto3Optional = proto.Bool(true)
+	status.OneofIndex = proto.Int32(0)
+
+	file := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("opt_test.proto"),
+		Package: proto.String("opt_test"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Palette"),
+				Field: []*descriptorpb.FieldDescriptorProto{status},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("_status")},
+				},
+			},
+		},
+		EnumType: []*descriptorpb.EnumDescriptorProto{
+			{
+				Name: proto.String("Color"),
+				Value: []*descriptorpb.EnumValueDescriptorProto{
+					{Name: proto.String("RED"), Number: proto.Int32(0)},
+					{Name: proto.String("BLUE"), Number: proto.Int32(1)},
+				},
+			},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{file}, "opt_test.pony")
+
+	// Class field: (Color | None), default None.
+	assert.Contains(t, out, "let status: (Color | None)")
+	assert.Contains(t, out, "status': (Color | None) = None")
+
+	// Encode: match on None (not zero-check).
+	assert.Contains(t, out, "match msg.status")
+	assert.Contains(t, out, "| let v: Color =>")
+	assert.NotContains(t, out, "if msg.status.value() != 0")
+}
+
+func TestCrossFileSameDirectoryRef(t *testing.T) {
+	t.Parallel()
+
+	addrField := field("address", 2, descriptorpb.FieldDescriptorProto_TYPE_MESSAGE)
+	addrField.TypeName = proto.String(".geo.Address")
+
+	personFile := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("geo/person.proto"),
+		Package:    proto.String("geo"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"geo/address.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:  proto.String("Person"),
+				Field: []*descriptorpb.FieldDescriptorProto{addrField},
+			},
+		},
+	}
+	addressFile := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("geo/address.proto"),
+		Package: proto.String("geo"),
+		Syntax:  proto.String("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{Name: proto.String("Address")},
+		},
+	}
+	out := runPlugin(t, []*descriptorpb.FileDescriptorProto{addressFile, personFile}, "geo/person.pony")
+
+	// Cross-file same-directory ref should be generated, not TODO.
+	assert.Contains(t, out, "let address: (Address val | None)")
+	assert.NotContains(t, out, "TODO protoc-gen-pony: field address")
+
+	// Sub-codec calls present.
+	assert.Contains(t, out, "AddressCodec.decode(WireReader(b))")
+	assert.Contains(t, out, "AddressCodec.encode(sub, v)")
+}
+
 func TestInjectGoImportStubs_PreservesExistingParameters(t *testing.T) {
 	t.Parallel()
 	const existing = "foo=1,bar=,foo=2"

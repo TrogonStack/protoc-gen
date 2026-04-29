@@ -2,11 +2,20 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
+
+// genCtx carries the plugin and file context through all emit functions so
+// that same-file message/enum name resolution is available everywhere.
+type genCtx struct {
+	plugin *protogen.Plugin
+	file   *protogen.File
+	g      *protogen.GeneratedFile
+}
 
 // generateFile emits one `.pony` source per `.proto` input. Pony has no
 // notion of a `package` keyword inside the file (packages are directories),
@@ -30,9 +39,10 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 	g.P(`// Source: `, file.Desc.Path())
 	g.P()
 
-	collectAndEmitMessages(g, file.Messages, "")
+	ctx := &genCtx{plugin: plugin, file: file, g: g}
+	ctx.collectAndEmitMessages(file.Messages, "")
 	for _, enum := range file.Enums {
-		emitEnumTodo(g, enum, "")
+		ctx.emitEnum(enum, "")
 	}
 }
 
@@ -40,171 +50,542 @@ func generateFile(plugin *protogen.Plugin, file *protogen.File) {
 // nested types into their parent's namespace via `Outer_Inner` mangling.
 // Messages are emitted in source order — protogen already gives us a
 // deterministic walk, so we don't need to sort.
-func collectAndEmitMessages(g *protogen.GeneratedFile, messages []*protogen.Message, namePrefix string) {
+func (ctx *genCtx) collectAndEmitMessages(messages []*protogen.Message, namePrefix string) {
 	for _, msg := range messages {
+		if msg.Desc.IsMapEntry() {
+			continue // synthetic map-entry type — map fields emit TODO
+		}
 		flatName := namePrefix + string(msg.Desc.Name())
-		emitMessage(g, msg, flatName)
-		if len(msg.Messages) > 0 {
-			collectAndEmitMessages(g, msg.Messages, flatName+"_")
-		}
+		ctx.emitMessage(msg, flatName)
+		ctx.collectAndEmitMessages(msg.Messages, flatName+"_")
 		for _, enum := range msg.Enums {
-			emitEnumTodo(g, enum, flatName+"_")
+			ctx.emitEnum(enum, flatName+"_")
 		}
 	}
 }
 
-func emitMessage(g *protogen.GeneratedFile, msg *protogen.Message, className string) {
-	supported := supportedFields(msg.Fields)
-	emitClass(g, className, msg.Fields, supported)
-	g.P()
-	emitCodec(g, className, supported)
-	g.P()
+func (ctx *genCtx) emitMessage(msg *protogen.Message, className string) {
+	supported := ctx.supportedFields(msg.Fields)
+	ctx.emitClass(className, msg.Fields, supported)
+	ctx.g.P()
+	ctx.emitCodec(className, supported)
+	ctx.g.P()
 }
 
-func emitClass(g *protogen.GeneratedFile, className string, all, supported []*protogen.Field) {
-	g.P(`class val `, className)
+func (ctx *genCtx) emitClass(className string, all, supported []*protogen.Field) {
+	ctx.g.P(`class val `, className)
 	for _, field := range all {
-		if isSupported(field) {
-			g.P(`  let `, field.Desc.Name(), `: `, ponyType(field))
+		if ctx.isSupported(field) {
+			ctx.g.P(`  let `, field.Desc.Name(), `: `, ctx.fieldPonyType(field))
 		} else {
-			g.P(`  // TODO protoc-gen-pony: field `, field.Desc.Name(), ` (`, fieldShape(field), `)`)
+			ctx.g.P(`  // TODO protoc-gen-pony: field `, field.Desc.Name(), ` (`, fieldShape(field), `)`)
 		}
 	}
-	g.P()
-	emitConstructor(g, supported)
+	ctx.g.P()
+	ctx.emitConstructor(supported)
 }
 
-func emitConstructor(g *protogen.GeneratedFile, supported []*protogen.Field) {
+func (ctx *genCtx) emitConstructor(supported []*protogen.Field) {
 	if len(supported) == 0 {
-		g.P(`  new val create() => None`)
+		ctx.g.P(`  new val create() => None`)
 		return
 	}
-	g.P(`  new val create(`)
+	ctx.g.P(`  new val create(`)
 	for i, field := range supported {
 		suffix := ","
 		if i == len(supported)-1 {
 			suffix = ")"
 		}
-		g.P(`    `, field.Desc.Name(), `': `, ponyType(field), ` = `, ponyDefault(field), suffix)
+		ctx.g.P(`    `, field.Desc.Name(), `': `, ctx.fieldPonyType(field), ` = `, ctx.fieldPonyDefault(field), suffix)
 	}
-	g.P(`  =>`)
+	ctx.g.P(`  =>`)
 	for _, field := range supported {
-		g.P(`    `, field.Desc.Name(), ` = `, field.Desc.Name(), `'`)
+		ctx.g.P(`    `, field.Desc.Name(), ` = `, field.Desc.Name(), `'`)
 	}
 }
 
-func emitCodec(g *protogen.GeneratedFile, className string, supported []*protogen.Field) {
-	g.P(`primitive `, className, `Codec`)
-	emitDecode(g, className, supported)
-	g.P()
-	emitEncode(g, className, supported)
+func (ctx *genCtx) emitCodec(className string, supported []*protogen.Field) {
+	ctx.g.P(`primitive `, className, `Codec`)
+	ctx.emitDecode(className, supported)
+	ctx.g.P()
+	ctx.emitEncode(className, supported)
 }
 
-func emitDecode(g *protogen.GeneratedFile, className string, supported []*protogen.Field) {
-	g.P(`  fun decode(reader: WireReader ref): (`, className, ` val | WireError) =>`)
+func (ctx *genCtx) emitDecode(className string, supported []*protogen.Field) {
+	ctx.g.P(`  fun decode(reader: WireReader ref): (`, className, ` val | WireError) =>`)
 	for _, field := range supported {
-		g.P(`    var `, field.Desc.Name(), `: `, ponyType(field), ` = `, ponyDefault(field))
+		name := string(field.Desc.Name())
+		if field.Desc.IsList() {
+			elem := ctx.elemPonyType(field)
+			ctx.g.P(`    var `, name, `: Array[`, elem, `] trn = recover trn Array[`, elem, `] end`)
+		} else {
+			ctx.g.P(`    var `, name, `: `, ctx.fieldPonyType(field), ` = `, ctx.fieldPonyDefault(field))
+		}
 	}
-	g.P(`    while not reader.at_end() do`)
-	g.P(`      match reader.read_tag()`)
-	g.P(`      | let t: Tag =>`)
-	g.P(`        match (t.field_number, t.wire_type)`)
+	ctx.g.P(`    while not reader.at_end() do`)
+	ctx.g.P(`      match reader.read_tag()`)
+	ctx.g.P(`      | let t: Tag =>`)
+	ctx.g.P(`        match (t.field_number, t.wire_type)`)
 	for _, field := range supported {
-		g.P(`        | (`, field.Desc.Number(), `, `, ponyWireType(field), `) =>`)
-		g.P(`          match `, ponyReadExpr(field))
-		g.P(`          | let v: `, ponyType(field), ` => `, field.Desc.Name(), ` = v`)
-		g.P(`          | let e: WireError => return e`)
-		g.P(`          end`)
+		ctx.emitDecodeArm(field)
 	}
-	g.P(`        else`)
-	g.P(`          match reader.skip(t.wire_type)`)
-	g.P(`          | None => None`)
-	g.P(`          | let e: WireError => return e`)
-	g.P(`          end`)
-	g.P(`        end`)
-	g.P(`      | let e: WireError => return e`)
-	g.P(`      end`)
-	g.P(`    end`)
-	emitConstructorCall(g, className, supported)
+	ctx.g.P(`        else`)
+	ctx.g.P(`          match reader.skip(t.wire_type)`)
+	ctx.g.P(`          | None => None`)
+	ctx.g.P(`          | let e: WireError => return e`)
+	ctx.g.P(`          end`)
+	ctx.g.P(`        end`)
+	ctx.g.P(`      | let e: WireError => return e`)
+	ctx.g.P(`      end`)
+	ctx.g.P(`    end`)
+	ctx.emitConstructorCall(className, supported)
 }
 
-func emitConstructorCall(g *protogen.GeneratedFile, className string, supported []*protogen.Field) {
+func (ctx *genCtx) emitDecodeArm(field *protogen.Field) {
+	name := string(field.Desc.Name())
+	num := field.Desc.Number()
+	wt := ctx.fieldPonyWireType(field)
+	ctx.g.P(`        | (`, num, `, `, wt, `) =>`)
+
+	switch {
+	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.MessageKind:
+		// non-packed: one tag + len-delim per element (proto3 repeated message)
+		codec := ponyMessageClassName(field.Message) + "Codec"
+		elemType := ponyMessageClassName(field.Message) + " val"
+		ctx.g.P(`          match reader.read_len_delim()`)
+		ctx.g.P(`          | let b: Array[U8] val =>`)
+		ctx.g.P(`            match `, codec, `.decode(WireReader(b))`)
+		ctx.g.P(`            | let v: `, elemType, ` => `, name, `.push(v)`)
+		ctx.g.P(`            | let e: WireError => return e`)
+		ctx.g.P(`            end`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+
+	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.EnumKind:
+		fromValue := ponyEnumFromValueName(field.Enum)
+		ctx.g.P(`          match reader.read_len_delim()`)
+		ctx.g.P(`          | let b: Array[U8] val =>`)
+		ctx.g.P(`            let sub = WireReader(b)`)
+		ctx.g.P(`            while not sub.at_end() do`)
+		ctx.g.P(`              match Scalar.read_int32(sub)`)
+		ctx.g.P(`              | let v: I32 => `, name, `.push(`, fromValue, `(v))`)
+		ctx.g.P(`              | let e: WireError => return e`)
+		ctx.g.P(`              end`)
+		ctx.g.P(`            end`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+
+	case field.Desc.IsList():
+		spec := scalarSpecs[field.Desc.Kind()]
+		readExpr := strings.Replace(spec.readExpr, "reader", "sub", 1)
+		ctx.g.P(`          match reader.read_len_delim()`)
+		ctx.g.P(`          | let b: Array[U8] val =>`)
+		ctx.g.P(`            let sub = WireReader(b)`)
+		ctx.g.P(`            while not sub.at_end() do`)
+		ctx.g.P(`              match `, readExpr)
+		ctx.g.P(`              | let v: `, spec.ponyType, ` => `, name, `.push(v)`)
+		ctx.g.P(`              | let e: WireError => return e`)
+		ctx.g.P(`              end`)
+		ctx.g.P(`            end`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+
+	case field.Desc.Kind() == protoreflect.MessageKind:
+		codec := ponyMessageClassName(field.Message) + "Codec"
+		msgType := ponyMessageClassName(field.Message) + " val"
+		ctx.g.P(`          match reader.read_len_delim()`)
+		ctx.g.P(`          | let b: Array[U8] val =>`)
+		ctx.g.P(`            match `, codec, `.decode(WireReader(b))`)
+		ctx.g.P(`            | let v: `, msgType, ` => `, name, ` = v`)
+		ctx.g.P(`            | let e: WireError => return e`)
+		ctx.g.P(`            end`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+
+	case field.Desc.Kind() == protoreflect.EnumKind:
+		fromValue := ponyEnumFromValueName(field.Enum)
+		ctx.g.P(`          match Scalar.read_int32(reader)`)
+		ctx.g.P(`          | let v: I32 => `, name, ` = `, fromValue, `(v)`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+
+	default:
+		spec := scalarSpecs[field.Desc.Kind()]
+		ctx.g.P(`          match `, spec.readExpr)
+		ctx.g.P(`          | let v: `, spec.ponyType, ` => `, name, ` = v`)
+		ctx.g.P(`          | let e: WireError => return e`)
+		ctx.g.P(`          end`)
+	}
+}
+
+func (ctx *genCtx) emitConstructorCall(className string, supported []*protogen.Field) {
 	if len(supported) == 0 {
-		g.P(`    `, className)
+		ctx.g.P(`    `, className)
 		return
 	}
 	parts := make([]string, len(supported))
 	for i, field := range supported {
-		parts[i] = string(field.Desc.Name())
+		if field.Desc.IsList() {
+			parts[i] = "consume " + string(field.Desc.Name())
+		} else {
+			parts[i] = string(field.Desc.Name())
+		}
 	}
-	g.P(`    `, className, `(`, strings.Join(parts, ", "), `)`)
+	ctx.g.P(`    `, className, `(`, strings.Join(parts, ", "), `)`)
 }
 
-func emitEncode(g *protogen.GeneratedFile, className string, supported []*protogen.Field) {
-	g.P(`  fun encode(writer: WireWriter ref, msg: `, className, ` val) =>`)
+func (ctx *genCtx) emitEncode(className string, supported []*protogen.Field) {
+	ctx.g.P(`  fun encode(writer: WireWriter ref, msg: `, className, ` val) =>`)
 	if len(supported) == 0 {
-		g.P(`    None`)
+		ctx.g.P(`    None`)
 		return
 	}
 	for _, field := range supported {
-		emitEncodeField(g, field)
+		ctx.emitEncodeField(field)
 	}
 }
 
-func emitEncodeField(g *protogen.GeneratedFile, field *protogen.Field) {
+func (ctx *genCtx) emitEncodeField(field *protogen.Field) {
+	ref := "msg." + string(field.Desc.Name())
 	num := field.Desc.Number()
-	if field.Desc.Kind() == protoreflect.StringKind {
-		// write_string_field handles the empty-string skip internally.
-		g.P(`    writer.write_string_field(`, num, `, msg.`, field.Desc.Name(), `)`)
-		return
+
+	switch {
+	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.MessageKind:
+		// non-packed: one tag + len-delim per element (proto3 repeated message)
+		codec := ponyMessageClassName(field.Message) + "Codec"
+		ctx.g.P(`    for v in `, ref, `.values() do`)
+		ctx.g.P(`      let sub = WireWriter`)
+		ctx.g.P(`      `, codec, `.encode(sub, v)`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+		ctx.g.P(`      writer.write_len_delim(sub.done())`)
+		ctx.g.P(`    end`)
+
+	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.EnumKind:
+		ctx.emitPackedEncode(ref, num, "Scalar.write_int32(sub, v.value())")
+
+	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.StringKind:
+		ctx.emitPackedEncode(ref, num, "sub.write_string(v)")
+
+	case field.Desc.IsList() && field.Desc.Kind() == protoreflect.BytesKind:
+		ctx.emitPackedEncode(ref, num, "sub.write_len_delim(v)")
+
+	case field.Desc.IsList():
+		spec := scalarSpecs[field.Desc.Kind()]
+		ctx.emitPackedEncode(ref, num, strings.Replace(fmt.Sprintf(spec.writeFmt, "v"), "writer", "sub", 1))
+
+	case field.Desc.Kind() == protoreflect.MessageKind:
+		codec := ponyMessageClassName(field.Message) + "Codec"
+		msgType := ponyMessageClassName(field.Message) + " val"
+		ctx.g.P(`    match `, ref)
+		ctx.g.P(`    | let v: `, msgType, ` =>`)
+		ctx.g.P(`      let sub = WireWriter`)
+		ctx.g.P(`      `, codec, `.encode(sub, v)`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+		ctx.g.P(`      writer.write_len_delim(sub.done())`)
+		ctx.g.P(`    end`)
+
+	case !field.Desc.IsList() && field.Desc.HasOptionalKeyword():
+		// optional field: explicit presence — emit match on None (never skip zero values)
+		ctx.emitOptionalEncodeField(field)
+
+	case field.Desc.Kind() == protoreflect.EnumKind:
+		// singular enum: skip zero value (implicit absence)
+		ctx.g.P(`    if `, ref, `.value() != 0 then`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireVarint))`)
+		ctx.g.P(`      Scalar.write_int32(writer, `, ref, `.value())`)
+		ctx.g.P(`    end`)
+
+	case field.Desc.Kind() == protoreflect.StringKind:
+		// write_string_field handles empty-string skip internally
+		ctx.g.P(`    writer.write_string_field(`, num, `, `, ref, `)`)
+
+	default:
+		spec := scalarSpecs[field.Desc.Kind()]
+		ctx.g.P(`    if `, fmt.Sprintf(spec.presence, ref), ` then`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, `, spec.wireType, `))`)
+		ctx.g.P(`      `, fmt.Sprintf(spec.writeFmt, ref))
+		ctx.g.P(`    end`)
 	}
-	g.P(`    if `, presenceCheck(field), ` then`)
-	g.P(`      writer.write_tag(Tag(`, num, `, `, ponyWireType(field), `))`)
-	g.P(`      `, ponyWriteCall(field, "msg."+string(field.Desc.Name())))
-	g.P(`    end`)
 }
 
-func emitEnumTodo(g *protogen.GeneratedFile, enum *protogen.Enum, namePrefix string) {
-	g.P(`// TODO protoc-gen-pony: enum `, namePrefix, enum.Desc.Name())
-	g.P()
+func (ctx *genCtx) emitPackedEncode(ref string, num protoreflect.FieldNumber, writeOp string) {
+	ctx.g.P(`    if `, ref, `.size() > 0 then`)
+	ctx.g.P(`      let sub = WireWriter`)
+	ctx.g.P(`      for v in `, ref, `.values() do`)
+	ctx.g.P(`        `, writeOp)
+	ctx.g.P(`      end`)
+	ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+	ctx.g.P(`      writer.write_len_delim(sub.done())`)
+	ctx.g.P(`    end`)
 }
 
-// isSupported is the v1 cut: singular implicit-presence proto3 scalars only.
-// Repeated, optional explicit presence (proto3 `optional` and editions
-// EXPLICIT presence), oneofs, maps, messages, enums, and groups all surface
-// as TODO comments until the corresponding codegen lands.
-func isSupported(field *protogen.Field) bool {
-	if field.Desc.IsList() || field.Desc.IsMap() {
+func (ctx *genCtx) emitOptionalEncodeField(field *protogen.Field) {
+	ref := "msg." + string(field.Desc.Name())
+	num := field.Desc.Number()
+	switch field.Desc.Kind() {
+	case protoreflect.EnumKind:
+		enumType := ponyEnumTypeName(field.Enum)
+		ctx.g.P(`    match `, ref)
+		ctx.g.P(`    | let v: `, enumType, ` =>`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireVarint))`)
+		ctx.g.P(`      Scalar.write_int32(writer, v.value())`)
+		ctx.g.P(`    end`)
+	case protoreflect.StringKind:
+		ctx.g.P(`    match `, ref)
+		ctx.g.P(`    | let v: String val =>`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+		ctx.g.P(`      writer.write_string(v)`)
+		ctx.g.P(`    end`)
+	case protoreflect.BytesKind:
+		ctx.g.P(`    match `, ref)
+		ctx.g.P(`    | let v: Array[U8] val =>`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, WireLenDelim))`)
+		ctx.g.P(`      writer.write_len_delim(v)`)
+		ctx.g.P(`    end`)
+	default:
+		spec := scalarSpecs[field.Desc.Kind()]
+		ctx.g.P(`    match `, ref)
+		ctx.g.P(`    | let v: `, spec.ponyType, ` =>`)
+		ctx.g.P(`      writer.write_tag(Tag(`, num, `, `, spec.wireType, `))`)
+		ctx.g.P(`      `, fmt.Sprintf(spec.writeFmt, "v"))
+		ctx.g.P(`    end`)
+	}
+}
+
+func (ctx *genCtx) emitEnum(enum *protogen.Enum, namePrefix string) {
+	enumTypeName := namePrefix + string(enum.Desc.Name())
+	fromValueName := enumTypeName + "FromValue"
+
+	var zeroName string
+	primNames := make([]string, 0, len(enum.Values))
+	for _, v := range enum.Values {
+		prim := namePrefix + screamingToPascal(string(v.Desc.Name()))
+		ctx.g.P(`primitive `, prim, `   fun value(): I32 => `, v.Desc.Number())
+		primNames = append(primNames, prim)
+		if v.Desc.Number() == 0 && zeroName == "" {
+			zeroName = prim
+		}
+	}
+	if zeroName == "" && len(primNames) > 0 {
+		zeroName = primNames[0]
+	}
+	ctx.g.P()
+	ctx.g.P(`type `, enumTypeName, ` is (`, strings.Join(primNames, " | "), `)`)
+	ctx.g.P()
+	ctx.g.P(`primitive `, fromValueName)
+	ctx.g.P(`  fun apply(v: I32): `, enumTypeName, ` =>`)
+	ctx.g.P(`    match v`)
+	for _, v := range enum.Values {
+		if v.Desc.Number() == 0 {
+			continue // zero value is the else branch
+		}
+		prim := namePrefix + screamingToPascal(string(v.Desc.Name()))
+		ctx.g.P(`    | `, v.Desc.Number(), ` => `, prim)
+	}
+	ctx.g.P(`    else `, zeroName)
+	ctx.g.P(`    end`)
+	ctx.g.P()
+}
+
+// isSupported returns true for field shapes we generate code for.
+// Out: maps, oneofs, proto3 optional (synthetic oneof), groups, cross-file
+// message/enum refs. In: scalars (singular + repeated), same-file messages
+// (singular + repeated), same-file enums (singular + repeated).
+func (ctx *genCtx) isSupported(field *protogen.Field) bool {
+	if field.Desc.IsMap() {
 		return false
 	}
-	// Editions fields with explicit presence (and proto3 `optional`).
-	if field.Desc.HasPresence() {
-		return false
-	}
-	if field.Oneof != nil {
+	if field.Oneof != nil && !field.Desc.HasOptionalKeyword() {
 		return false
 	}
 	switch field.Desc.Kind() {
-	case protoreflect.MessageKind, protoreflect.GroupKind, protoreflect.EnumKind:
+	case protoreflect.GroupKind:
 		return false
+	case protoreflect.MessageKind:
+		if field.Message == nil || field.Message.Desc.IsMapEntry() {
+			return false
+		}
+		return ctx.isSamePonyPackage(field.Message.Desc.ParentFile())
+	case protoreflect.EnumKind:
+		if field.Enum == nil {
+			return false
+		}
+		return ctx.isSamePonyPackage(field.Enum.Desc.ParentFile())
 	}
 	return true
 }
 
-func supportedFields(fields []*protogen.Field) []*protogen.Field {
+func (ctx *genCtx) supportedFields(fields []*protogen.Field) []*protogen.Field {
 	var out []*protogen.Field
 	for _, f := range fields {
-		if isSupported(f) {
+		if ctx.isSupported(f) {
 			out = append(out, f)
 		}
 	}
 	return out
 }
 
+func (ctx *genCtx) isSamePonyPackage(parentFile protoreflect.FileDescriptor) bool {
+	return path.Dir(parentFile.Path()) == path.Dir(ctx.file.Desc.Path())
+}
+
+// fieldPonyType returns the Pony type declaration for a field.
+// Repeated fields become Array[elem] val.
+// Singular message fields become (ChildMsg val | None).
+// Singular enum fields become the enum type alias.
+// Scalars use scalarSpecs.
+func (ctx *genCtx) fieldPonyType(field *protogen.Field) string {
+	if field.Desc.IsList() {
+		return "Array[" + ctx.elemPonyType(field) + "] val"
+	}
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		return "(" + ponyMessageClassName(field.Message) + " val | None)"
+	case protoreflect.EnumKind:
+		if field.Desc.HasOptionalKeyword() {
+			return "(" + ponyEnumTypeName(field.Enum) + " | None)"
+		}
+		return ponyEnumTypeName(field.Enum)
+	}
+	if field.Desc.HasOptionalKeyword() {
+		return "(" + scalarSpecs[field.Desc.Kind()].ponyType + " | None)"
+	}
+	return scalarSpecs[field.Desc.Kind()].ponyType
+}
+
+// elemPonyType returns the element type for repeated fields (no None wrapper
+// for messages — each element is always present).
+func (ctx *genCtx) elemPonyType(field *protogen.Field) string {
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		return ponyMessageClassName(field.Message) + " val"
+	case protoreflect.EnumKind:
+		return ponyEnumTypeName(field.Enum)
+	}
+	return scalarSpecs[field.Desc.Kind()].ponyType
+}
+
+// fieldPonyDefault returns the default value expression for a field.
+func (ctx *genCtx) fieldPonyDefault(field *protogen.Field) string {
+	if field.Desc.IsList() {
+		return "recover val Array[" + ctx.elemPonyType(field) + "] end"
+	}
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		return "None"
+	case protoreflect.EnumKind:
+		if field.Desc.HasOptionalKeyword() {
+			return "None"
+		}
+		return ponyEnumZeroValuePrimitive(field.Enum)
+	}
+	if field.Desc.HasOptionalKeyword() {
+		return "None"
+	}
+	return scalarSpecs[field.Desc.Kind()].ponyDefault
+}
+
+// fieldPonyWireType returns the wire type string for the decode match arm.
+func (ctx *genCtx) fieldPonyWireType(field *protogen.Field) string {
+	if field.Desc.IsList() {
+		return "WireLenDelim" // packed scalars + per-entry messages
+	}
+	switch field.Desc.Kind() {
+	case protoreflect.MessageKind:
+		return "WireLenDelim"
+	case protoreflect.EnumKind:
+		return "WireVarint"
+	}
+	return scalarSpecs[field.Desc.Kind()].wireType
+}
+
+// ── Name helpers ─────────────────────────────────────────────────────────────
+
+// screamingToPascal converts SCREAMING_SNAKE_CASE to PascalCase.
+// STATUS_UNKNOWN → StatusUnknown, ACTIVE → Active.
+func screamingToPascal(s string) string {
+	parts := strings.Split(strings.ToLower(s), "_")
+	var b strings.Builder
+	for _, p := range parts {
+		if len(p) > 0 {
+			b.WriteString(strings.ToUpper(p[:1]) + p[1:])
+		}
+	}
+	return b.String()
+}
+
+// ponyMessageClassName builds the flat Pony class name for a message by
+// walking the parent chain (Outer.Inner → Outer_Inner).
+func ponyMessageClassName(msg *protogen.Message) string {
+	var ancestors []string
+	parent := msg.Desc.Parent()
+	for {
+		parentMsg, ok := parent.(protoreflect.MessageDescriptor)
+		if !ok {
+			break
+		}
+		ancestors = append(ancestors, string(parentMsg.Name()))
+		parent = parentMsg.Parent()
+	}
+	// ancestors are innermost-first; reverse to outermost-first
+	for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+		ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+	}
+	return strings.Join(append(ancestors, string(msg.Desc.Name())), "_")
+}
+
+// enumNamePrefix returns the message-hierarchy prefix (e.g. "Zoo_") for
+// an enum nested inside messages. Top-level enums return "".
+func enumNamePrefix(enum *protogen.Enum) string {
+	var ancestors []string
+	parent := enum.Desc.Parent()
+	for {
+		parentMsg, ok := parent.(protoreflect.MessageDescriptor)
+		if !ok {
+			break
+		}
+		ancestors = append(ancestors, string(parentMsg.Name()))
+		parent = parentMsg.Parent()
+	}
+	if len(ancestors) == 0 {
+		return ""
+	}
+	for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+		ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+	}
+	return strings.Join(ancestors, "_") + "_"
+}
+
+// ponyEnumTypeName returns the Pony type alias name for an enum.
+func ponyEnumTypeName(enum *protogen.Enum) string {
+	return enumNamePrefix(enum) + string(enum.Desc.Name())
+}
+
+func ponyEnumFromValueName(enum *protogen.Enum) string {
+	return ponyEnumTypeName(enum) + "FromValue"
+}
+
+// ponyEnumZeroValuePrimitive returns the Pony primitive name for the proto3
+// zero value (number == 0) of an enum.
+func ponyEnumZeroValuePrimitive(enum *protogen.Enum) string {
+	prefix := enumNamePrefix(enum)
+	for _, v := range enum.Values {
+		if v.Desc.Number() == 0 {
+			return prefix + screamingToPascal(string(v.Desc.Name()))
+		}
+	}
+	if len(enum.Values) > 0 {
+		return prefix + screamingToPascal(string(enum.Values[0].Desc.Name()))
+	}
+	return ponyEnumTypeName(enum) + "Zero"
+}
+
+// ── fieldShape ────────────────────────────────────────────────────────────────
+
 // fieldShape returns a short string describing why a field is unsupported,
 // for the TODO comment.
 func fieldShape(field *protogen.Field) string {
-	parts := []string{}
+	var parts []string
 	if field.Desc.IsMap() {
 		parts = append(parts, "map")
 	} else if field.Desc.IsList() {
@@ -219,6 +600,8 @@ func fieldShape(field *protogen.Field) string {
 	parts = append(parts, field.Desc.Kind().String())
 	return strings.Join(parts, " ")
 }
+
+// ── scalarSpecs ───────────────────────────────────────────────────────────────
 
 // scalarSpec lookups for Pony codegen. Single source of truth for the
 // FieldKind → (Pony type, default, wire type, read expr, write fmt,
@@ -312,33 +695,4 @@ var scalarSpecs = map[protoreflect.Kind]scalarSpec{
 		readExpr: "reader.read_len_delim()", writeFmt: "writer.write_len_delim(%s)",
 		presence: "%s.size() > 0",
 	},
-}
-
-func ponyType(field *protogen.Field) string {
-	return scalarSpecs[field.Desc.Kind()].ponyType
-}
-
-func ponyDefault(field *protogen.Field) string {
-	return scalarSpecs[field.Desc.Kind()].ponyDefault
-}
-
-func ponyWireType(field *protogen.Field) string {
-	return scalarSpecs[field.Desc.Kind()].wireType
-}
-
-func ponyReadExpr(field *protogen.Field) string {
-	return scalarSpecs[field.Desc.Kind()].readExpr
-}
-
-func ponyWriteCall(field *protogen.Field, valueRef string) string {
-	spec := scalarSpecs[field.Desc.Kind()]
-	if spec.writeFmt == "" {
-		return ""
-	}
-	return fmt.Sprintf(spec.writeFmt, valueRef)
-}
-
-func presenceCheck(field *protogen.Field) string {
-	spec := scalarSpecs[field.Desc.Kind()]
-	return fmt.Sprintf(spec.presence, "msg."+string(field.Desc.Name()))
 }
