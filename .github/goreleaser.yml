@@ -44,6 +44,25 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
+  - id: protoc-gen-pony
+    main: ./cmd/protoc-gen-pony
+    binary: protoc-gen-pony
+    skip: '{{ ne .Env.BUILD_COMPONENT "protoc-gen-pony" }}'
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
 archives:
   - id: default
     name_template: >-

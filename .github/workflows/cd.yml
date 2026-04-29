@@ -76,12 +76,12 @@ jobs:
           
           # Validate component is known
           case "$COMPONENT" in
-            protoc-gen-elixir-grpc|protoc-gen-connect-go-servicestruct)
+            protoc-gen-elixir-grpc|protoc-gen-connect-go-servicestruct|protoc-gen-pony)
               echo "Valid component: ${COMPONENT}"
               ;;
             *)
               echo "ERROR: Unknown component: ${COMPONENT}"
-              echo "Valid components: protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct"
+              echo "Valid components: protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct, protoc-gen-pony"
               exit 1
               ;;
           esac
