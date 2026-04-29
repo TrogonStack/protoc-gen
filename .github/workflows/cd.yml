@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
@@ -76,12 +76,12 @@ jobs:
           
           # Validate component is known
           case "$COMPONENT" in
-            protoc-gen-elixir-grpc|protoc-gen-connect-go-servicestruct)
+            protoc-gen-elixir-grpc|protoc-gen-connect-go-servicestruct|protoc-gen-pony)
               echo "Valid component: ${COMPONENT}"
               ;;
             *)
               echo "ERROR: Unknown component: ${COMPONENT}"
-              echo "Valid components: protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct"
+              echo "Valid components: protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct, protoc-gen-pony"
               exit 1
               ;;
           esac
@@ -115,7 +115,7 @@ jobs:
 
       - name: Attest Build Provenance
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'false')
-        uses: actions/attest-build-provenance@v3.1.0
+        uses: actions/attest-build-provenance@v3.2.0
         with:
           subject-path: "dist/**/*.tar.gz"
 
