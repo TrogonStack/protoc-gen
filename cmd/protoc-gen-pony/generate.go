@@ -174,7 +174,7 @@ func (ctx *genCtx) emitDecode(className string, supported []*protogen.Field, one
 		name := string(field.Desc.Name())
 		if field.Desc.IsMap() {
 			kType := ctx.mapKeyPonyType(field.Message.Fields[0])
-			vType := ctx.mapValuePonyType(field.Message.Fields[1])
+			vType := ctx.elemPonyType(field.Message.Fields[1])
 			ctx.g.P(`    var `, name, `: Map[`, kType, `, `, vType, `] trn = recover trn Map[`, kType, `, `, vType, `] end`)
 		} else if field.Desc.IsList() {
 			elem := ctx.elemPonyType(field)
@@ -325,7 +325,7 @@ func (ctx *genCtx) emitMapDecodeArm(field *protogen.Field, name string, num prot
 	valField := field.Message.Fields[1]
 	keySpec := scalarSpecs[keyField.Desc.Kind()]
 	kType := ctx.mapKeyPonyType(keyField)
-	vType := ctx.mapValuePonyType(valField)
+	vType := ctx.elemPonyType(valField)
 	keyReadExpr := strings.Replace(keySpec.readExpr, "reader", "entry_sub", 1)
 
 	ctx.g.P(`        | (`, num, `, WireLenDelim) =>`)
@@ -771,16 +771,6 @@ func (ctx *genCtx) mapKeyPonyType(field *protogen.Field) string {
 	return scalarSpecs[field.Desc.Kind()].ponyType
 }
 
-func (ctx *genCtx) mapValuePonyType(field *protogen.Field) string {
-	switch field.Desc.Kind() {
-	case protoreflect.MessageKind:
-		return ponyMessageClassName(field.Message) + " val"
-	case protoreflect.EnumKind:
-		return ponyEnumTypeName(field.Enum)
-	}
-	return scalarSpecs[field.Desc.Kind()].ponyType
-}
-
 func (ctx *genCtx) mapValueDefault(field *protogen.Field) string {
 	switch field.Desc.Kind() {
 	case protoreflect.MessageKind:
@@ -876,8 +866,6 @@ var wktBlocklist = map[string]bool{
 	"google/protobuf/descriptor.proto": true,
 }
 
-// isWKT reports whether f is a blocked well-known-type file. Most WKTs
-// generate as regular proto3 messages; only the circular/JSON-only ones stay TODO.
 func isWKT(f protoreflect.FileDescriptor) bool {
 	return wktBlocklist[f.Path()]
 }
@@ -1025,7 +1013,7 @@ func (ctx *genCtx) supportedFields(fields []*protogen.Field) []*protogen.Field {
 func (ctx *genCtx) fieldPonyType(field *protogen.Field) string {
 	if field.Desc.IsMap() {
 		kType := ctx.mapKeyPonyType(field.Message.Fields[0])
-		vType := ctx.mapValuePonyType(field.Message.Fields[1])
+		vType := ctx.elemPonyType(field.Message.Fields[1])
 		return "Map[" + kType + ", " + vType + "] val"
 	}
 	if field.Desc.IsList() {
@@ -1062,7 +1050,7 @@ func (ctx *genCtx) elemPonyType(field *protogen.Field) string {
 func (ctx *genCtx) fieldPonyDefault(field *protogen.Field) string {
 	if field.Desc.IsMap() {
 		kType := ctx.mapKeyPonyType(field.Message.Fields[0])
-		vType := ctx.mapValuePonyType(field.Message.Fields[1])
+		vType := ctx.elemPonyType(field.Message.Fields[1])
 		return "recover val Map[" + kType + ", " + vType + "] end"
 	}
 	if field.Desc.IsList() {
