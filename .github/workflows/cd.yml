@@ -115,7 +115,7 @@ jobs:
 
       - name: Attest Build Provenance
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'false')
-        uses: actions/attest-build-provenance@v4.1.0
+        uses: actions/attest@v4.1.0
         with:
           subject-path: "dist/**/*.tar.gz"
 
