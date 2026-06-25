@@ -35,6 +35,18 @@ plugins:
 
 Server modules are generated into the same directory structure as the protobuf definitions, with `.server.pb.ex` suffix.
 
+If you enable Buf's top-level `clean: true`, configure this plugin's `out` as a generated-only directory. Buf deletes each plugin `out` directory before invoking the plugin, so pointing `out` at a directory that also contains hand-written handlers will delete those files before this generator runs.
+
+```yaml
+version: v2
+clean: true
+plugins:
+  - local: protoc-gen-elixir-grpc
+    out: lib/generated_grpc
+```
+
+If generated stubs and hand-written handlers share the same output tree, keep `clean: false`.
+
 ### Configuration Options
 
 You can configure the plugin using parameters:
