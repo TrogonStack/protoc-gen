@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.4.2...protoc-gen-elixir-grpc@v0.4.3) (2026-06-25)
+
+
+### Bug Fixes
+
+* **protoc-gen-elixir-grpc:** Leading slash in generated file paths ([#53](https://github.com/TrogonStack/protoc-gen/issues/53)) ([ac4777a](https://github.com/TrogonStack/protoc-gen/commit/ac4777a51153c5adaa740ba3515baaf2fe804a98))
+
 ## [0.4.2](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir-grpc@v0.4.1...protoc-gen-elixir-grpc@v0.4.2) (2025-12-31)
 
 
