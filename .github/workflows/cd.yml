@@ -93,7 +93,7 @@ jobs:
 
       - name: Run GoReleaser (Snapshot)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
-        uses: goreleaser/goreleaser-action@v6.4.0
+        uses: goreleaser/goreleaser-action@v7.2.1
         with:
           distribution: goreleaser
           version: "~> v2"
@@ -104,7 +104,7 @@ jobs:
 
       - name: Run GoReleaser (Release)
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'false')
-        uses: goreleaser/goreleaser-action@v6.4.0
+        uses: goreleaser/goreleaser-action@v7.2.1
         with:
           distribution: goreleaser
           version: "~> v2"
