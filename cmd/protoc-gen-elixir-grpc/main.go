@@ -16,6 +16,10 @@
 //	  - local: protoc-gen-elixir-grpc
 //	    out: lib
 //
+// If you use buf's top-level clean: true, set out to a generated-only
+// directory. Buf deletes each plugin out directory before invoking the plugin.
+// Do not point out at a directory that also contains hand-written handlers.
+//
 // This generates server module definitions for the Protobuf services
 // defined by file.proto. If file.proto defines the Greeter service, the
 // invocations above will write output to:
@@ -49,15 +53,15 @@ var (
 )
 
 const (
-	filenameSuffix           = ".ex"
-	serverSuffix             = "Server"
-	defaultPackagePrefix     = ""
-	packagePrefixFlag        = "package_prefix"
-	handlerModulePrefixFlag  = "handler_module_prefix"
-	serverModulePrefixFlag   = "server_module_prefix"
-	httpTranscodeFlag        = "http_transcode"
-	codecsFlag               = "codecs"
-	compressorsFlag          = "compressors"
+	filenameSuffix          = ".ex"
+	serverSuffix            = "Server"
+	defaultPackagePrefix    = ""
+	packagePrefixFlag       = "package_prefix"
+	handlerModulePrefixFlag = "handler_module_prefix"
+	serverModulePrefixFlag  = "server_module_prefix"
+	httpTranscodeFlag       = "http_transcode"
+	codecsFlag              = "codecs"
+	compressorsFlag         = "compressors"
 
 	usage = "\n\nFlags:\n  -h, --help\tPrint this help and exit.\n      --version\tPrint the version and exit.\n      --handler_module_prefix\tCustom Elixir module prefix for handler modules instead of protobuf package.\n      --server_module_prefix\tCustom Elixir module prefix for server modules instead of protobuf package.\n      --http_transcode\tEnable HTTP transcoding support (adds http_transcode: true to use GRPC.Server).\n      --codecs\tComma-separated list of codec modules (e.g., 'GRPC.Codec.Proto,GRPC.Codec.WebText,GRPC.Codec.JSON').\n      --compressors\tComma-separated list of compressor modules (e.g., 'GRPC.Compressor.Gzip')."
 )
@@ -469,7 +473,9 @@ func generateFilePath(file *descriptorpb.FileDescriptorProto, opts GenerateOptio
 		baseFileName = baseFileName[:idx]
 	}
 
-	return strings.Join(pathParts, "/") + "/" + baseFileName + ".server.pb" + filenameSuffix
+	pathParts = append(pathParts, baseFileName+".server.pb"+filenameSuffix)
+
+	return strings.Join(pathParts, "/")
 }
 
 func toSnakeCase(s string) string {
