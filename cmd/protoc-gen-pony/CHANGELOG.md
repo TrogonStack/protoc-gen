@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-pony@v0.0.1...protoc-gen-pony@v0.1.0) (2026-06-25)
+
+
+### Features
+
+* Add protoc-gen-pony plugin ([#47](https://github.com/TrogonStack/protoc-gen/issues/47)) ([5bf8c02](https://github.com/TrogonStack/protoc-gen/commit/5bf8c02648305b3f70f9fc86191fced19a4427c0))
+
+## Changelog
+
 ## Unreleased
 
 ### Features

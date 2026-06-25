@@ -1,5 +1,5 @@
 {
   "cmd/protoc-gen-connect-go-servicestruct": "0.2.0",
   "cmd/protoc-gen-elixir-grpc": "0.4.2",
-  "cmd/protoc-gen-pony": "0.0.1"
+  "cmd/protoc-gen-pony": "0.1.0"
 }
