@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -56,11 +58,15 @@ func camelizeSegment(segment string) string {
 	return strings.Join(parts, "")
 }
 
+// capitalize upcases only the first rune, not byte, of s: package_prefix and
+// elixirpb.file.module_prefix (unlike proto identifiers) aren't constrained
+// to ASCII by ValidateProtoName, so a multi-byte leading rune is possible.
 func capitalize(s string) string {
 	if s == "" {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	r, size := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[size:]
 }
 
 // ModName mirrors Protobuf.Protoc.Generator.Util.mod_name/2: computes the
