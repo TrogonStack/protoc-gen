@@ -305,7 +305,7 @@ func renderFieldTypeValue(field *descriptorpb.FieldDescriptorProto, types *TypeR
 func fieldOptions(field *descriptorpb.FieldDescriptorProto, oneofCtx OneofContext) []fieldOption {
 	var opts []fieldOption
 
-	if field.GetJsonName() != field.GetName() {
+	if field.JsonName != nil && field.GetJsonName() != field.GetName() {
 		opts = append(opts, fieldOption{"json_name", fmt.Sprintf("%q", field.GetJsonName())})
 	}
 
