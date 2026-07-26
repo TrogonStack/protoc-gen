@@ -40,56 +40,18 @@ jobs:
         with:
           go-version: "1.24"
 
+      - name: Install mise
+        uses: jdx/mise-action@v4.2.3
+
       - name: Extract Version from Tag
         id: version
-        run: |
-          # Extract version from monorepo tags like protoc-gen-elixir-grpc@v0.1.0
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
-          elif [ -n "${{ github.event.inputs.tag }}" ]; then
-            # Use tag from workflow_dispatch input if provided
-            TAG="${{ github.event.inputs.tag }}"
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            # Use the ref if it's a tag
-            TAG="${{ github.ref_name }}"
-          else
-            echo "ERROR: No tag provided. Please provide a tag via workflow_dispatch input."
-            echo "Example: gh workflow run cd.yml -f dry_run=true -f tag=protoc-gen-elixir-grpc@v0.1.0"
-            exit 1
-          fi
-          
-          # Validate tag format (must contain @ separator)
-          if [[ ! "$TAG" =~ @ ]]; then
-            echo "ERROR: Tag must follow pattern 'component@version', got: ${TAG}"
-            echo "Examples: protoc-gen-elixir-grpc@v0.1.0, protoc-gen-connect-go-servicestruct@v0.2.0"
-            exit 1
-          fi
-          
-          VERSION="${TAG##*@}"
-          COMPONENT="${TAG%%@*}"
-          
-          # Validate version is not empty
-          if [ -z "$VERSION" ]; then
-            echo "ERROR: Failed to extract version from tag: ${TAG}"
-            exit 1
-          fi
-          
-          # Validate component is known
-          case "$COMPONENT" in
-            protoc-gen-elixir-grpc|protoc-gen-connect-go-servicestruct|protoc-gen-pony)
-              echo "Valid component: ${COMPONENT}"
-              ;;
-            *)
-              echo "ERROR: Unknown component: ${COMPONENT}"
-              echo "Valid components: protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct, protoc-gen-pony"
-              exit 1
-              ;;
-          esac
-          
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "component=${COMPONENT}" >> $GITHUB_OUTPUT
-          echo "Extracted component: ${COMPONENT}"
-          echo "Extracted version: ${VERSION}"
+        run: mise run github-actions:extract-version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
 
       - name: Run GoReleaser (Snapshot)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
