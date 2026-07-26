@@ -1,9 +1,9 @@
 // Synthetic fixture (not lifted from upstream): its directory layout
 // (`foo/bar/mirror.proto`) mirrors its package (`foo.bar`), the standard
 // protoc/Buf convention. This exists to pin the default-mode output-path
-// doubling bug documented in ../../../TODO.md's "Output File Layout"
-// section — see that doc for the reproduction and the decision to
-// replicate it byte-for-byte rather than fix it.
+// doubling bug documented on outputPath in ../../../../generator.go: see
+// that doc comment for the reproduction and the decision to replicate it
+// byte-for-byte rather than fix it.
 syntax = "proto3";
 
 package foo.bar;

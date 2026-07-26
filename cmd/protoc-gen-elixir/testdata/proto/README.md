@@ -2,7 +2,7 @@
 
 These `.proto` files are lifted verbatim from
 [`elixir-protobuf/protobuf`](https://github.com/elixir-protobuf/protobuf)
-(MIT licensed) at the HEAD commit pinned in `../TODO.md`:
+(MIT licensed) at the HEAD commit pinned in `../CHANGELOG.md`:
 
 - `custom_options.proto`, `extension.proto`, `full_name.proto`,
   `no_package.proto`, `service.proto`, `test.proto` — from
