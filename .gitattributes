@@ -1,0 +1,13 @@
+# This repo's generators guarantee byte-for-byte output against reference
+# implementations (see cmd/protoc-gen-elixir/README.md), so text files must
+# never be reflowed by git's CRLF handling on checkout.
+* text=auto eol=lf
+
+# Generated code: exclude from GitHub's language stats and collapse by
+# default in diffs.
+cmd/protoc-gen-elixir/internal/elixirpb/elixirpb.pb.go linguist-generated=true
+cmd/protoc-gen-elixir/testdata/golden/** linguist-generated=true
+
+# .proto fixtures lifted verbatim from elixir-protobuf/protobuf (see
+# testdata/proto/README.md) - not code written for this repo.
+cmd/protoc-gen-elixir/testdata/proto/*.proto linguist-vendored=true
