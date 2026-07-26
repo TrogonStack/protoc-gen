@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates cmd/protoc-gen-elixir/testdata/golden/ by running the real
 # elixir-protobuf/protobuf escript (built from the pinned HEAD commit
-# documented in ../TODO.md) against ../testdata/proto/.
+# documented in ../CHANGELOG.md) against ../testdata/proto/.
 #
 # Requires:
 #   - protoc on PATH.
@@ -22,8 +22,8 @@ GOLDEN_DIR="$SCRIPT_DIR/golden"
 
 GOOGLE_PROTOBUF_SRC="${GOOGLE_PROTOBUF_SRC:-$(dirname "$PROTOC_GEN_ELIXIR_ESCRIPT")/deps/google_protobuf/src}"
 
-rm -rf "$GOLDEN_DIR"
 mkdir -p "$GOLDEN_DIR"
+find "$GOLDEN_DIR" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
 
 gen() {
   local name="$1"
@@ -46,8 +46,10 @@ gen gen_descriptors "gen_descriptors=true,include_docs=true" "$PROTO_DIR/custom_
 gen no_package "include_docs=true" "$PROTO_DIR/no_package.proto"
 gen full_name "gen_proto_source=true,include_docs=true" "$PROTO_DIR/full_name.proto"
 
-# Additions beyond upstream's own fixture generation (see TODO.md's "Reference
-# Test-Suite Coverage Map" and "Test / Validation Plan"):
+# Additions beyond upstream's own fixture generation, covering behavior this
+# native reimplementation supports beyond what upstream's own test suite
+# exercises (grpc, gen_proto_source, transform_module, one_file_per_module,
+# path doubling):
 gen grpc "plugins=grpc,include_docs=true" "$PROTO_DIR/test.proto" "$PROTO_DIR/service.proto"
 gen grpc_proto_source "plugins=grpc,gen_proto_source=true" "$PROTO_DIR/test.proto" "$PROTO_DIR/service.proto"
 gen transform_module "transform_module=My.App.Transform" "$PROTO_DIR/test.proto"
