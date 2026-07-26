@@ -107,7 +107,8 @@ func testRunProtocGenElixir(t *testing.T, stdin io.Reader, args ...string) (stdo
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	_ = cmd.Run() // Don't use require.NoError since we want to capture exit codes
+	runErr := cmd.Run() // Don't use require.NoError since we want to capture exit codes
+	require.NotNil(t, cmd.ProcessState, "go run failed to start: %v", runErr)
 	exitCode = cmd.ProcessState.ExitCode()
 	return stdout, stderr, exitCode
 }
