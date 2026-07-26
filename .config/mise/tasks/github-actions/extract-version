@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#MISE description="Extract the component and version from a monorepo release tag"
+set -euo pipefail
+
+if [ "$EVENT_NAME" = "release" ]; then
+  TAG="$RELEASE_TAG"
+elif [ -n "${DISPATCH_TAG:-}" ]; then
+  TAG="$DISPATCH_TAG"
+elif [[ "$REF" == refs/tags/* ]]; then
+  TAG="$REF_NAME"
+else
+  echo "ERROR: No tag provided. Please provide a tag via workflow_dispatch input."
+  echo "Example: gh workflow run cd.yml -f dry_run=true -f tag=protoc-gen-elixir-grpc@v0.1.0"
+  exit 1
+fi
+
+if [[ ! "$TAG" =~ @ ]]; then
+  echo "ERROR: Tag must follow pattern 'component@version', got: ${TAG}"
+  echo "Examples: protoc-gen-elixir-grpc@v0.1.0, protoc-gen-connect-go-servicestruct@v0.2.0"
+  exit 1
+fi
+
+VERSION="${TAG##*@}"
+COMPONENT="${TAG%%@*}"
+
+if [ -z "$VERSION" ]; then
+  echo "ERROR: Failed to extract version from tag: ${TAG}"
+  exit 1
+fi
+
+case "$COMPONENT" in
+  protoc-gen-elixir | protoc-gen-elixir-grpc | protoc-gen-connect-go-servicestruct | protoc-gen-pony)
+    echo "Valid component: ${COMPONENT}"
+    ;;
+  *)
+    echo "ERROR: Unknown component: ${COMPONENT}"
+    echo "Valid components: protoc-gen-elixir, protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct, protoc-gen-pony"
+    exit 1
+    ;;
+esac
+
+echo "version=${VERSION}" >>"$GITHUB_OUTPUT"
+echo "component=${COMPONENT}" >>"$GITHUB_OUTPUT"
+echo "Extracted component: ${COMPONENT}"
+echo "Extracted version: ${VERSION}"
