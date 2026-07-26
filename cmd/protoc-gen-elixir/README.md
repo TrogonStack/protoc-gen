@@ -63,4 +63,30 @@ If you use proto2 extensions, pass the extension-defining `.proto` files to
 dependency. We cannot load custom extensions from compiled Elixir modules —
 that is a fundamental Elixir runtime feature, not a protoc-plugin feature.
 
+With `buf`, the equivalent is a `deps:` entry in `buf.yaml`, resolved via
+`buf dep update`. For example, to use this plugin's own `module_prefix`
+file-option extension, published on the Buf Schema Registry as
+`buf.build/elixir-protobuf/protobuf`:
+
+```yaml
+# buf.yaml
+version: v2
+deps:
+  - buf.build/elixir-protobuf/protobuf
+```
+
+```proto
+// your_file.proto
+syntax = "proto2";
+
+import "elixirpb.proto";
+
+option (elixirpb.file).module_prefix = "MyApp";
+```
+
+Run `buf dep update` once to pull the module into your lock file; `buf
+generate` then resolves the import and includes its descriptors in the
+`CodeGeneratorRequest` automatically, the same way a `protoc -I` include path
+would.
+
 [buf]: https://buf.build
