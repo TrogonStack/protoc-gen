@@ -68,6 +68,21 @@ end`
 	assert.Equal(t, want, got)
 }
 
+// TestRenderUseProtobufService_WrapsLongFullName covers the same wrap
+// threshold RenderUseProtobuf applies: the escript pipes the whole generated
+// module through Code.format_string!/2 (see renderUseMacro's doc comment),
+// so a long enough proto-qualified service name must wrap one option per
+// line here too, not stay on a single unwrapped line.
+func TestRenderUseProtobufService_WrapsLongFullName(t *testing.T) {
+	t.Parallel()
+
+	got := RenderUseProtobufService(2, "some.very.long.package.name.ThisIsAReallyLongServiceNameForTesting")
+	want := "  use GRPC.Service,\n" +
+		"    name: \"some.very.long.package.name.ThisIsAReallyLongServiceNameForTesting\",\n" +
+		"    protoc_gen_elixir_version: \"0.17.0\""
+	assert.Equal(t, want, got)
+}
+
 // TestRenderService_ProtoSourcePlacement covers def proto_source() placement
 // (standalone function, after `use GRPC.Service`, before the rpc lines) and
 // its exclusion from the .Stub module - verified byte-for-byte against

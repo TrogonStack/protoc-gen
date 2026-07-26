@@ -193,9 +193,19 @@ const useProtobufLineThreshold = 98
 // indent (in spaces), choosing single-line or wrapped form based on whether
 // the single-line rendering fits within useProtobufLineThreshold.
 func RenderUseProtobuf(indent int, opts []Option) string {
+	return renderUseMacro(indent, "Protobuf", opts)
+}
+
+// renderUseMacro renders a full "use <macroName>, ..." block, wrapping one
+// option per line when the single-line form exceeds useProtobufLineThreshold
+// - the escript pipes every generated module's full text through
+// Code.format_string!/2 (see Protobuf.Protoc.Generator.Util.format/1), so
+// this wrap decision applies uniformly to every `use` call the escript
+// emits, not just "use Protobuf".
+func renderUseMacro(indent int, macroName string, opts []Option) string {
 	pad := strings.Repeat(" ", indent)
 	body := RenderOptionsBody(opts)
-	singleLine := pad + "use Protobuf, " + body
+	singleLine := pad + "use " + macroName + ", " + body
 
 	if len(singleLine) <= useProtobufLineThreshold {
 		return singleLine
@@ -209,7 +219,7 @@ func RenderUseProtobuf(indent int, opts []Option) string {
 		optionLines[i] = optionPad + opt.Key + ": " + RenderOptionValue(opt.Value)
 	}
 
-	return pad + "use Protobuf,\n" + strings.Join(optionLines, ",\n")
+	return pad + "use " + macroName + ",\n" + strings.Join(optionLines, ",\n")
 }
 
 // groupIntegerDigits mirrors mix format's numeric-literal normalization for

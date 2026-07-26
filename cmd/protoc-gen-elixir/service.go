@@ -151,20 +151,20 @@ func renderStubModule(stubModName, serviceModName string, includeDocs bool) stri
 }
 
 // RenderUseProtobufService renders the `use GRPC.Service, name: "...", protoc_gen_elixir_version: "..."`
-// line. Unlike RenderUseProtobuf (used by messages/enums), this is not
-// alphabetically sorted from an arbitrary option set - the golden fixture
+// line, wrapping one option per line via renderUseMacro's shared threshold
+// whenever a long fullName pushes the single-line form past 98 chars (see
+// renderUseMacro's doc comment - the escript's Code.format_string!/2 pass
+// applies to this line exactly as it does to "use Protobuf"). The option
+// order itself is not independently evidenced beyond RenderOptionsBody's
+// existing alphabetical sort: the golden fixture
 // (testdata/golden/grpc/test/service.pb.ex) only ever shows these two keys,
 // already in the shown order, which happens to also be alphabetical (name
-// before protoc_gen_elixir_version), so no separate ordering evidence exists
-// beyond RenderOptionsBody's existing alphabetical sort being reused here for
-// consistency with every other use-option list in this codebase.
+// before protoc_gen_elixir_version).
 func RenderUseProtobufService(indent int, fullName string) string {
-	pad := strings.Repeat(" ", indent)
-	body := RenderOptionsBody([]Option{
+	return renderUseMacro(indent, "GRPC.Service", []Option{
 		{Key: "name", Value: fullName},
 		{Key: "protoc_gen_elixir_version", Value: protocGenElixirVersion},
 	})
-	return pad + "use GRPC.Service, " + body
 }
 
 // renderRPC renders a single `rpc :name, InputType, OutputType` line (or with
