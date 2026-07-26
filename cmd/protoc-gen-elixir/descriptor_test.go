@@ -156,6 +156,21 @@ func TestDecodeUnknownFieldsNonPrintableBinary(t *testing.T) {
 	assert.Equal(t, "<<255, 0>>", entries[0].Value.render(0))
 }
 
+func TestDecodeUnknownFieldsReplacementCharacterIsPrintable(t *testing.T) {
+	t.Parallel()
+
+	// tag: field 1, wire type 2 -> (1 << 3) | 2 = 10; length 3; raw bytes are
+	// the valid UTF-8 encoding of U+FFFD (0xef 0xbf 0xbd). Decoded as a rune,
+	// U+FFFD's numeric value is identical to utf8.RuneError's sentinel value,
+	// but since the byte sequence is valid UTF-8 (not a decode error) it must
+	// still render as a string, matching Elixir's String.printable?/1.
+	raw := []byte{10, 3, 0xef, 0xbf, 0xbd}
+
+	entries := decodeUnknownFields(raw)
+	require.Len(t, entries, 1)
+	assert.Equal(t, `"�"`, entries[0].Value.render(0))
+}
+
 func TestDecodeUnknownFieldsVarint(t *testing.T) {
 	t.Parallel()
 

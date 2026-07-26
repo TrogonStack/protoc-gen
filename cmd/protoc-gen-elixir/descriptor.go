@@ -315,9 +315,6 @@ func isElixirPrintable(raw []byte) bool {
 
 	s := string(raw)
 	for _, r := range s {
-		if r == utf8.RuneError {
-			return false
-		}
 		if elixirPrintableEscapes[r] {
 			continue
 		}
