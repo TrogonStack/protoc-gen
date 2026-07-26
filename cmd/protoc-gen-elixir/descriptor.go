@@ -821,44 +821,27 @@ func messageOptionsTerm(opts *descriptorpb.MessageOptions) elixirTerm {
 	return termStruct{TypeName: "Google.Protobuf.MessageOptions", Fields: fields}
 }
 
-// fieldOptionsTerm is UNVERIFIED against any golden fixture. retention/
-// targets/edition_defaults (17/19/20) are very-recent editions-era fields -
-// plausibly ALSO absent from this pin (like Visibility was excluded above),
-// but no fixture proves it either way, so they're included on a best-effort
-// basis rather than guessed-excluded: excluding without evidence just
-// substitutes one guess for another.
+// fieldOptionsTerm has no golden fixture exercising these fields, but each
+// one's presence-gating is grounded in the corresponding `field` declaration
+// in elixir-protobuf/protobuf's own generated descriptor.pb.ex at the pinned
+// commit: a field declared with a Protobuf `default:` renders its effective
+// value even when unset (ctype, jstype, lazy, weak, unverified_lazy,
+// debug_redact, deprecated), while a field declared with no `default:` stays
+// nil unless explicitly set (packed, retention). targets/edition_defaults
+// (19/20) are very-recent editions-era fields - plausibly ALSO absent from
+// this pin (like Visibility was excluded above), but no fixture proves it
+// either way, so they're included on a best-effort basis rather than
+// guessed-excluded: excluding without evidence just substitutes one guess for
+// another.
 func fieldOptionsTerm(opts *descriptorpb.FieldOptions) elixirTerm {
-	var ctypeTerm = nilTerm()
-	if opts.Ctype != nil {
-		ctypeTerm = atomTerm(fieldOptionsCTypeAtomName(opts.GetCtype()))
-	}
 	var packedTerm = nilTerm()
 	if opts.Packed != nil {
 		packedTerm = boolTerm(opts.GetPacked())
 	}
-	var jstypeTerm = nilTerm()
-	if opts.Jstype != nil {
-		jstypeTerm = atomTerm(fieldOptionsJSTypeAtomName(opts.GetJstype()))
-	}
-	var lazyTerm = nilTerm()
-	if opts.Lazy != nil {
-		lazyTerm = boolTerm(opts.GetLazy())
-	}
 	// weak is deprecated in descriptor.proto itself, but still a real field
 	// number this rendering table must cover on the same best-effort basis as
 	// the rest of FieldOptions (see this function's own doc comment).
-	var weakTerm = nilTerm() //nolint:staticcheck
-	if opts.Weak != nil {    //nolint:staticcheck
-		weakTerm = boolTerm(opts.GetWeak()) //nolint:staticcheck
-	}
-	var unverifiedLazyTerm = nilTerm()
-	if opts.UnverifiedLazy != nil {
-		unverifiedLazyTerm = boolTerm(opts.GetUnverifiedLazy())
-	}
-	var debugRedactTerm = nilTerm()
-	if opts.DebugRedact != nil {
-		debugRedactTerm = boolTerm(opts.GetDebugRedact())
-	}
+	weakTerm := boolTerm(opts.GetWeak()) //nolint:staticcheck
 	var retentionTerm = nilTerm()
 	if opts.Retention != nil {
 		retentionTerm = atomTerm(fieldOptionsRetentionAtomName(opts.GetRetention()))
@@ -885,14 +868,14 @@ func fieldOptionsTerm(opts *descriptorpb.FieldOptions) elixirTerm {
 	}
 
 	fields := []field{
-		{"ctype", ctypeTerm},
+		{"ctype", atomTerm(fieldOptionsCTypeAtomName(opts.GetCtype()))},
 		{"packed", packedTerm},
 		{"deprecated", boolTerm(opts.GetDeprecated())},
-		{"lazy", lazyTerm},
-		{"jstype", jstypeTerm},
+		{"lazy", boolTerm(opts.GetLazy())},
+		{"jstype", atomTerm(fieldOptionsJSTypeAtomName(opts.GetJstype()))},
 		{"weak", weakTerm},
-		{"unverified_lazy", unverifiedLazyTerm},
-		{"debug_redact", debugRedactTerm},
+		{"unverified_lazy", boolTerm(opts.GetUnverifiedLazy())},
+		{"debug_redact", boolTerm(opts.GetDebugRedact())},
 		{"retention", retentionTerm},
 		{"targets", termList{Elements: targetTerms}},
 		{"edition_defaults", termList{Elements: editionDefaultTerms}},
@@ -1065,13 +1048,11 @@ func serviceOptionsTerm(opts *descriptorpb.ServiceOptions) elixirTerm {
 	return termStruct{TypeName: "Google.Protobuf.ServiceOptions", Fields: fields}
 }
 
-// methodOptionsTerm is UNVERIFIED against any golden fixture.
+// methodOptionsTerm has no golden fixture exercising idempotency_level, but
+// MethodOptions declares it with a Protobuf `default:` (like deprecated), so
+// it renders its effective value even when unset - see fieldOptionsTerm's
+// doc comment for the underlying rationale.
 func methodOptionsTerm(opts *descriptorpb.MethodOptions) elixirTerm {
-	var idempotencyTerm = nilTerm()
-	if opts.IdempotencyLevel != nil {
-		idempotencyTerm = atomTerm(methodOptionsIdempotencyLevelAtomName(opts.GetIdempotencyLevel()))
-	}
-
 	uninterpTerms := make([]elixirTerm, len(opts.GetUninterpretedOption()))
 	for i, u := range opts.GetUninterpretedOption() {
 		uninterpTerms[i] = uninterpretedOptionTerm(u)
@@ -1079,7 +1060,7 @@ func methodOptionsTerm(opts *descriptorpb.MethodOptions) elixirTerm {
 
 	fields := []field{
 		{"deprecated", boolTerm(opts.GetDeprecated())},
-		{"idempotency_level", idempotencyTerm},
+		{"idempotency_level", atomTerm(methodOptionsIdempotencyLevelAtomName(opts.GetIdempotencyLevel()))},
 		{"features", nilTerm()},
 		{"uninterpreted_option", termList{Elements: uninterpTerms}},
 		pbExtensionsField(),
@@ -1103,17 +1084,15 @@ func methodOptionsIdempotencyLevelAtomName(v descriptorpb.MethodOptions_Idempote
 }
 
 // extensionRangeOptionsTerm is UNVERIFIED against any golden fixture.
-// declaration/verification are recent, low-value fields for this corpus;
-// declaration renders as an always-empty list (see fieldOptionsTerm's
-// edition_defaults comment - same rationale, no builder for the nested
-// Declaration message since nothing in the corpus exercises it).
+// declaration is a recent, low-value field for this corpus; it renders as an
+// always-empty list (see fieldOptionsTerm's edition_defaults comment - same
+// rationale, no builder for the nested Declaration message since nothing in
+// the corpus exercises it). verification declares a Protobuf `default:`
+// (like FieldOptions.ctype/jstype), so it renders its effective value even
+// when unset - see fieldOptionsTerm's doc comment for the underlying
+// rationale.
 func extensionRangeOptionsTerm(opts *descriptorpb.ExtensionRangeOptions) elixirTerm {
 	declarationTerms := make([]elixirTerm, 0, len(opts.GetDeclaration()))
-
-	var verificationTerm = nilTerm()
-	if opts.Verification != nil {
-		verificationTerm = atomTerm(extensionRangeOptionsVerificationStateAtomName(opts.GetVerification()))
-	}
 
 	uninterpTerms := make([]elixirTerm, len(opts.GetUninterpretedOption()))
 	for i, u := range opts.GetUninterpretedOption() {
@@ -1122,7 +1101,7 @@ func extensionRangeOptionsTerm(opts *descriptorpb.ExtensionRangeOptions) elixirT
 
 	fields := []field{
 		{"declaration", termList{Elements: declarationTerms}},
-		{"verification", verificationTerm},
+		{"verification", atomTerm(extensionRangeOptionsVerificationStateAtomName(opts.GetVerification()))},
 		{"features", nilTerm()},
 		{"uninterpreted_option", termList{Elements: uninterpTerms}},
 		pbExtensionsField(),
