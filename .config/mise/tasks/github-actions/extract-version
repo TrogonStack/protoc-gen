@@ -14,7 +14,7 @@ else
   exit 1
 fi
 
-if [[ ! "$TAG" =~ @ ]]; then
+if [[ ! "$TAG" =~ ^[^@]+@[^@]+$ ]]; then
   echo "ERROR: Tag must follow pattern 'component@version', got: ${TAG}"
   echo "Examples: protoc-gen-elixir-grpc@v0.1.0, protoc-gen-connect-go-servicestruct@v0.2.0"
   exit 1
