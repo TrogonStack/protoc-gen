@@ -25,6 +25,25 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
+  - id: protoc-gen-elixir
+    main: ./cmd/protoc-gen-elixir
+    binary: protoc-gen-elixir
+    skip: '{{ ne .Env.BUILD_COMPONENT "protoc-gen-elixir" }}'
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
   - id: protoc-gen-elixir-grpc
     main: ./cmd/protoc-gen-elixir-grpc
     binary: protoc-gen-elixir-grpc

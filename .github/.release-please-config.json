@@ -25,6 +25,9 @@
     "cmd/protoc-gen-connect-go-servicestruct": {
       "component": "protoc-gen-connect-go-servicestruct"
     },
+    "cmd/protoc-gen-elixir": {
+      "component": "protoc-gen-elixir"
+    },
     "cmd/protoc-gen-elixir-grpc": {
       "component": "protoc-gen-elixir-grpc"
     },

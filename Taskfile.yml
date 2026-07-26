@@ -60,7 +60,7 @@ tasks:
 
   build-plugin:
     desc: Build all protoc plugin binaries
-    deps: [build-plugin-go, build-plugin-elixir, build-plugin-pony]
+    deps: [build-plugin-go, build-plugin-elixir, build-plugin-elixir-grpc, build-plugin-pony]
 
   build-plugin-go:
     desc: Build the Go Connect protoc plugin binary
@@ -69,6 +69,12 @@ tasks:
       - go build -o protoc-gen-connect-go-servicestruct ./cmd/protoc-gen-connect-go-servicestruct
 
   build-plugin-elixir:
+    desc: Build the Elixir protoc plugin binary
+    cmds:
+      - echo "Building Elixir protoc plugin binary..."
+      - go build -o protoc-gen-elixir ./cmd/protoc-gen-elixir
+
+  build-plugin-elixir-grpc:
     desc: Build the Elixir gRPC protoc plugin binary
     cmds:
       - echo "Building Elixir gRPC protoc plugin binary..."
