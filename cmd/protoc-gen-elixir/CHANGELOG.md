@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir@v0.0.1...protoc-gen-elixir@v0.1.0) (2026-07-27)
+
+
+### Features
+
+* **protoc-gen-elixir:** Implement native Go code generation ([#58](https://github.com/TrogonStack/protoc-gen/issues/58)) ([dcb6e81](https://github.com/TrogonStack/protoc-gen/commit/dcb6e81b9dcff8c488570de333ed8b2680b44675))
+
+## Changelog
+
 ## Unreleased
 
 ### Features
