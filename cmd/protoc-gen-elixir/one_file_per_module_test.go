@@ -63,17 +63,15 @@ func TestOneFilePerModuleIntegration(t *testing.T) {
 	assert.Len(t, resp.GetFile(), len(goldenPaths), "generated file count should match golden fixture count exactly")
 }
 
-// TestOneFilePerModuleWithGRPC guards against a regression where the
-// .Service/.Stub pair was split apart via strings.Cut(text, "\n\n") on
-// RenderService's combined output: the .Service module body itself contains
-// internal blank lines (e.g. after a multi-line @moduledoc, before "use
-// GRPC.Service") that appear before the true Service/Stub boundary, so
-// cutting on the first "\n\n" silently truncated the .Service file and
-// prepended garbage to the .Stub file. There's no golden fixture combining
+// TestOneFilePerModuleWithGRPC guards the escript-matching file layout: the
+// .Service and .Stub defmodules for a given service are emitted together in
+// ONE file, named from the bare service module name (no .Service/.Stub
+// suffix) via Macro.underscore. There's no golden fixture combining
 // one_file_per_module=true with plugins=grpc (gen_goldens.sh never generates
 // one), so this asserts against testdata/golden/grpc/test/service.pb.ex -
-// the proven-correct single-file rendering of the same test.proto/
-// service.proto pair - split at its own known-correct module boundary.
+// the proven-correct rendering of the same test.proto/service.proto pair -
+// which is exactly the expected content here since that fixture already
+// pairs both defmodules in one blob.
 func TestOneFilePerModuleWithGRPC(t *testing.T) {
 	t.Parallel()
 
@@ -88,7 +86,7 @@ func TestOneFilePerModuleWithGRPC(t *testing.T) {
 	resp := testGenerate(t, req)
 	require.Empty(t, resp.GetError())
 
-	wantService := `defmodule Test.TestService.Service do
+	want := `defmodule Test.TestService.Service do
   @moduledoc """
   An example test service that has
   a test method. It expects a Request
@@ -99,17 +97,15 @@ func TestOneFilePerModuleWithGRPC(t *testing.T) {
 
   rpc :test, Test.Request, Test.Reply
 end
-`
-	wantStub := `defmodule Test.TestService.Stub do
+
+defmodule Test.TestService.Stub do
   use GRPC.Stub, service: Test.TestService.Service
 end
 `
 
-	serviceFile, ok := findGeneratedFile(resp.GetFile(), "test/test_service/service.pb.ex")
-	require.True(t, ok, "expected test/test_service/service.pb.ex among generated files")
-	assert.Equal(t, wantService, serviceFile.GetContent())
+	require.Len(t, resp.GetFile(), 1, "service.proto under one_file_per_module should yield exactly the merged service file, with no separate .Service/.Stub files")
 
-	stubFile, ok := findGeneratedFile(resp.GetFile(), "test/test_service/stub.pb.ex")
-	require.True(t, ok, "expected test/test_service/stub.pb.ex among generated files")
-	assert.Equal(t, wantStub, stubFile.GetContent())
+	file, ok := findGeneratedFile(resp.GetFile(), "test/test_service.pb.ex")
+	require.True(t, ok, "expected test/test_service.pb.ex among generated files")
+	assert.Equal(t, want, file.GetContent())
 }

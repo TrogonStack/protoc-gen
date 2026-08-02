@@ -173,9 +173,10 @@ func renderFileExtensionGroups(files []*descriptorpb.FileDescriptorProto, params
 //     both a service AND a message-embedded extend in the same file, so the
 //     exact service-vs-this-tier relative order is inferred from that
 //     original table, not independently proven.
-//  5. Services (gated on plugins=grpc), in file declaration order, each as a
-//     paired ".Service" + ".Stub" module - rendered after every message body,
-//     verified against testdata/golden/grpc/test/service.pb.ex and
+//  5. Services (gated on plugins=grpc), in file declaration order, each as
+//     one module pairing its ".Service" and ".Stub" defmodules - rendered
+//     after every message body, verified against
+//     testdata/golden/grpc/test/service.pb.ex and
 //     testdata/golden/grpc_proto_source/test/service.pb.ex.
 //
 // The file-level merged PbExtension module is NOT rendered here at all - see
@@ -284,13 +285,14 @@ func (ctx *fileRenderContext) renderEnum(enum *descriptorpb.EnumDescriptorProto,
 
 // renderService renders a single service's paired .Service/.Stub modules
 // given the file's base module name / base package and the service's own
-// SourceCodeInfo path (e.g. [6, i] for file-level service i). The two
-// modules are returned as separate renderedModule entries (each with its own
-// module name) since one_file_per_module=true emits them as two distinct
-// files.
+// SourceCodeInfo path (e.g. [6, i] for file-level service i). The pair is
+// returned as ONE renderedModule keyed by the bare service module name (no
+// .Service/.Stub suffix), matching the escript, which emits both defmodules
+// into a single file derived from that bare name.
 func (ctx *fileRenderContext) renderService(svc *descriptorpb.ServiceDescriptorProto, path []int32) ([]renderedModule, error) {
-	serviceModName := qualifyModName(ctx.baseMod, CamelizeEach(svc.GetName())) + ".Service"
-	stubModName := qualifyModName(ctx.baseMod, CamelizeEach(svc.GetName())) + ".Stub"
+	modName := qualifyModName(ctx.baseMod, CamelizeEach(svc.GetName()))
+	serviceModName := modName + ".Service"
+	stubModName := modName + ".Stub"
 	fullName := qualifyFullName(ctx.basePkg, svc.GetName())
 
 	var docComment string
@@ -309,8 +311,7 @@ func (ctx *fileRenderContext) renderService(svc *descriptorpb.ServiceDescriptorP
 	}
 
 	return []renderedModule{
-		{modName: serviceModName, text: serviceText},
-		{modName: stubModName, text: stubText},
+		{modName: modName, text: serviceText + "\n\n" + stubText},
 	}, nil
 }
 
