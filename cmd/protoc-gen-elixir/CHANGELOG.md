@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir@v0.1.0...protoc-gen-elixir@v0.1.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* **protoc-gen-elixir:** Emit one file per service under one_file_per_module ([#63](https://github.com/TrogonStack/protoc-gen/issues/63)) ([6efd221](https://github.com/TrogonStack/protoc-gen/commit/6efd221af6d35977e3161cdfc9600237c8b1f169))
+
 ## [0.1.0](https://github.com/TrogonStack/protoc-gen/compare/protoc-gen-elixir@v0.0.1...protoc-gen-elixir@v0.1.0) (2026-07-27)
 
 
