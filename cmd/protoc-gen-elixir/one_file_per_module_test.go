@@ -103,6 +103,8 @@ defmodule Test.TestService.Stub do
 end
 `
 
+	require.Len(t, resp.GetFile(), 1, "service.proto under one_file_per_module should yield exactly the merged service file, with no separate .Service/.Stub files")
+
 	file, ok := findGeneratedFile(resp.GetFile(), "test/test_service.pb.ex")
 	require.True(t, ok, "expected test/test_service.pb.ex among generated files")
 	assert.Equal(t, want, file.GetContent())
