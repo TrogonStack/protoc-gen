@@ -85,7 +85,15 @@ func generateFile(file protoreflect.FileDescriptor, files *protoregistry.Files, 
 			if !validRustMarker(marker) {
 				return "", fmt.Errorf("enum value %s produces invalid Rust marker %q", value.FullName(), marker)
 			}
-			for _, name := range []string{marker, marker + "Input"} {
+			_, fields, err := parseTemplate(format.template)
+			if err != nil {
+				return "", fmt.Errorf("enum value %s: %w", value.FullName(), err)
+			}
+			generatedNames := []string{marker}
+			if len(fields) > 0 {
+				generatedNames = append(generatedNames, marker+"Input")
+			}
+			for _, name := range generatedNames {
 				if names[name] {
 					return "", fmt.Errorf("duplicate generated Rust name %s", name)
 				}
