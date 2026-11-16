@@ -12,6 +12,18 @@ import (
 )
 
 func TestGenerateFromDescriptorFixture(t *testing.T) {
+	response := generate(validRequest(t))
+	require.Empty(t, response.GetError())
+	require.Len(t, response.GetFile(), 1)
+	content := response.GetFile()[0].GetContent()
+	require.Contains(t, content, "pub struct SkuIdentityVersionV1;")
+	require.Contains(t, content, "pub struct SkuIdentityVersionV1Input<'a>")
+	require.Contains(t, content, "trogon_uuid::uuid5_parts")
+	require.Contains(t, content, "pub struct StaticTemplate;")
+}
+
+func validRequest(t *testing.T) *pluginpb.CodeGeneratorRequest {
+	t.Helper()
 	var descriptors descriptorpb.FileDescriptorSet
 	require.NoError(t, proto.Unmarshal(testdataRecipes, &descriptors))
 	for _, file := range descriptors.File {
@@ -36,26 +48,19 @@ func TestGenerateFromDescriptorFixture(t *testing.T) {
 		file.EnumType = filteredEnums
 	}
 
-	request := &pluginpb.CodeGeneratorRequest{
+	return &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: []string{"example/catalog/v1/identity.proto"},
 		ProtoFile:      descriptors.File,
+		Parameter:      proto.String("language=rust,features=uuid"),
 	}
-	response := generate(request)
-	require.Empty(t, response.GetError())
-	require.Len(t, response.GetFile(), 1)
-
-	content := response.GetFile()[0].GetContent()
-	require.Contains(t, content, "pub struct SkuIdentityVersionV1;")
-	require.Contains(t, content, "pub struct SkuIdentityVersionV1Input<'a>")
-	require.Contains(t, content, "trogon_uuid::uuid5_parts")
-	require.Contains(t, content, "pub struct StaticTemplate;")
 }
 
 func TestGenerateReturnsDescriptorErrors(t *testing.T) {
 	response := generate(&pluginpb.CodeGeneratorRequest{
 		FileToGenerate: []string{"missing.proto"},
+		Parameter:      proto.String("language=rust,features=uuid"),
 	})
-	require.NotEmpty(t, response.GetError())
+	require.Contains(t, response.GetError(), "find missing.proto")
 }
 
 //go:embed testdata/recipes.binpb
