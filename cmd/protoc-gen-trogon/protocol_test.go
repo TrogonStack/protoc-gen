@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"testing"
@@ -166,6 +167,61 @@ func TestProtocolConfiguredFilesRequireUUIDSchema(t *testing.T) {
 				FileToGenerate: []string{file.GetName()}, ProtoFile: []*descriptorpb.FileDescriptorProto{file},
 			})
 			require.Contains(t, response.GetError(), "required extension")
+			require.Empty(t, response.File)
+		})
+	}
+}
+
+func TestProtocolReservesOnlyEmittedInputNames(t *testing.T) {
+	for _, template := range []string{"singleton", ""} {
+		for _, reverse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("template=%q/reverse=%t", template, reverse), func(t *testing.T) {
+				values := []*descriptorpb.EnumValueDescriptorProto{
+					edgeValue("FOO", template, 0), edgeValue("FOO_INPUT", "{key}", 1),
+				}
+				if reverse {
+					values[0], values[1] = values[1], values[0]
+					values[0].Number = proto.Int32(0)
+					values[1].Number = proto.Int32(1)
+				}
+				response := invokeRequest(t, edgeRequest(t, values...))
+				require.Empty(t, response.GetError())
+				require.Len(t, response.File, 1)
+				content := response.File[0].GetContent()
+				require.Contains(t, content, "pub struct Foo;")
+				require.Contains(t, content, "pub struct FooInput;")
+				require.Contains(t, content, "pub struct FooInputInput<'a>")
+			})
+		}
+	}
+}
+
+func TestProtocolAllowsStaticRecipeInputSuffix(t *testing.T) {
+	response := invokeRequest(t, edgeRequest(t,
+		edgeValue("FOO", "singleton", 0), edgeValue("FOO_INPUT", "", 1),
+	))
+	require.Empty(t, response.GetError())
+	require.Len(t, response.File, 1)
+	content := response.File[0].GetContent()
+	require.Contains(t, content, "pub struct Foo;")
+	require.Contains(t, content, "pub struct FooInput;")
+	require.NotContains(t, content, "struct FooInput<'a>")
+	require.NotContains(t, content, "struct FooInputInput")
+}
+
+func TestProtocolRejectsEmittedInputCollisionsInEitherOrder(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reverse=%t", reverse), func(t *testing.T) {
+			values := []*descriptorpb.EnumValueDescriptorProto{
+				edgeValue("FOO", "{key}", 0), edgeValue("FOO_INPUT", "singleton", 1),
+			}
+			if reverse {
+				values[0], values[1] = values[1], values[0]
+				values[0].Number = proto.Int32(0)
+				values[1].Number = proto.Int32(1)
+			}
+			response := invokeRequest(t, edgeRequest(t, values...))
+			require.Contains(t, response.GetError(), "duplicate generated Rust name FooInput")
 			require.Empty(t, response.File)
 		})
 	}
