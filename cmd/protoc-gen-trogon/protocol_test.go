@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
@@ -104,4 +105,33 @@ func TestMonolithicCommandIdentity(t *testing.T) {
 	help := string(invokePlugin(t, nil, "--help"))
 	require.Contains(t, help, "--trogon_out")
 	require.Contains(t, help, "language=rust,features=uuid")
+}
+
+func TestProtocolUnannotatedFilesNeedNoUUIDSchema(t *testing.T) {
+	for _, shape := range []string{"messages_only", "top_level_enum", "nested_enum"} {
+		t.Run(shape, func(t *testing.T) {
+			file := &descriptorpb.FileDescriptorProto{
+				Name: proto.String("example/plain.proto"), Syntax: proto.String("proto3"),
+				MessageType: []*descriptorpb.DescriptorProto{{Name: proto.String("Plain")}},
+			}
+			enum := &descriptorpb.EnumDescriptorProto{
+				Name:  proto.String("Status"),
+				Value: []*descriptorpb.EnumValueDescriptorProto{{Name: proto.String("UNKNOWN"), Number: proto.Int32(0)}},
+			}
+			switch shape {
+			case "top_level_enum":
+				file.EnumType = []*descriptorpb.EnumDescriptorProto{enum}
+			case "nested_enum":
+				file.MessageType[0].NestedType = []*descriptorpb.DescriptorProto{{
+					Name: proto.String("Nested"), EnumType: []*descriptorpb.EnumDescriptorProto{enum},
+				}}
+			}
+			response := invokeRequest(t, &pluginpb.CodeGeneratorRequest{
+				Parameter:      proto.String("language=rust,features=uuid"),
+				FileToGenerate: []string{file.GetName()}, ProtoFile: []*descriptorpb.FileDescriptorProto{file},
+			})
+			require.Empty(t, response.GetError())
+			require.Empty(t, response.File)
+		})
+	}
 }
