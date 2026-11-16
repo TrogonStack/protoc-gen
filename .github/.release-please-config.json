@@ -34,8 +34,8 @@
     "cmd/protoc-gen-pony": {
       "component": "protoc-gen-pony"
     },
-    "cmd/protoc-gen-trogon-uuid": {
-      "component": "protoc-gen-trogon-uuid"
+    "cmd/protoc-gen-trogon": {
+      "component": "protoc-gen-trogon"
     }
   },
   "plugins": [

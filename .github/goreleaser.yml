@@ -82,10 +82,10 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
-  - id: protoc-gen-trogon-uuid
-    main: ./cmd/protoc-gen-trogon-uuid
-    binary: protoc-gen-trogon-uuid
-    skip: '{{ ne .Env.BUILD_COMPONENT "protoc-gen-trogon-uuid" }}'
+  - id: protoc-gen-trogon
+    main: ./cmd/protoc-gen-trogon
+    binary: protoc-gen-trogon
+    skip: '{{ ne .Env.BUILD_COMPONENT "protoc-gen-trogon" }}'
     env:
       - CGO_ENABLED=0
     goos:

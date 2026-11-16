@@ -4,6 +4,6 @@ A collection of protobuf compiler plugins.
 
 ## Plugins
 
-- [`protoc-gen-trogon-uuid`](cmd/protoc-gen-trogon-uuid/README.md) generates
-  Rust `trogon_uuid::UuidTemplate` recipes from the public `trogon.uuid.v1`
-  options.
+- [`protoc-gen-trogon`](cmd/protoc-gen-trogon/README.md) generates selected Trogon
+  protobuf features for an explicit output language. Currently supports Rust
+  UUIDv5 recipes through `language=rust,features=uuid`.
