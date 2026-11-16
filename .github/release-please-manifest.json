@@ -3,5 +3,5 @@
   "cmd/protoc-gen-elixir": "0.1.1",
   "cmd/protoc-gen-elixir-grpc": "0.4.3",
   "cmd/protoc-gen-pony": "0.1.0",
-  "cmd/protoc-gen-trogon": "0.1.0"
+  "cmd/protoc-gen-trogon": "0.0.0"
 }
