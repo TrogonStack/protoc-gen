@@ -40,8 +40,11 @@ stdout. It does not infer a language or framework from other plugins.
 - `language` is required. Only `rust` is supported.
 - `features` is required. Only `uuid` is supported. Feature names use `+` as a
   list separator; duplicate or unavailable features are errors.
-- `runtime_path` optionally changes the Rust runtime crate path, for example
-  `runtime_path=::uuid_runtime`. It must be an absolute path of ordinary Rust
+
+Rust-specific options use the `rs_` prefix.
+
+- `rs_runtime_path` optionally changes the Rust runtime crate path, for example
+  `rs_runtime_path=::uuid_runtime`. It must be an absolute path of ordinary Rust
   identifiers; it does not choose a framework or output language.
 
 Unknown options, missing values, duplicate selections and unsupported languages

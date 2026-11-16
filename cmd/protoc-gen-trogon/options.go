@@ -34,7 +34,7 @@ func parseConfiguration(parameter string) (configuration, error) {
 				return configuration{}, fmt.Errorf("option %q requires a nonempty value", key)
 			}
 			switch key {
-			case "language", "features", "runtime_path":
+			case "language", "features", "rs_runtime_path":
 			default:
 				return configuration{}, fmt.Errorf("unknown option %q", key)
 			}
@@ -68,11 +68,11 @@ func parseConfiguration(parameter string) (configuration, error) {
 		selectedFeatures = append(selectedFeatures, selected)
 	}
 	runtimePath := defaultRuntimePath
-	if value, present := values["runtime_path"]; present {
+	if value, present := values["rs_runtime_path"]; present {
 		runtimePath = value
 	}
 	if !validRuntimePath(runtimePath) {
-		return configuration{}, fmt.Errorf("runtime_path must be an absolute Rust path of identifiers")
+		return configuration{}, fmt.Errorf("rs_runtime_path must be an absolute Rust path of identifiers")
 	}
 	return configuration{language: selectedLanguage, features: selectedFeatures, runtimePath: runtimePath}, nil
 }
