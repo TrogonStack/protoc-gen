@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -13,9 +14,11 @@ import (
 )
 
 const (
-	enumExtensionName      = "trogon.uuid.v1.enum"
-	enumValueExtensionName = "trogon.uuid.v1.enum_value"
-	defaultRuntimePath     = "::trogon_uuid"
+	enumExtensionName        = "trogon.uuid.v1.enum"
+	enumValueExtensionName   = "trogon.uuid.v1.enum_value"
+	enumExtensionNumber      = 870001
+	enumValueExtensionNumber = 870002
+	defaultRuntimePath       = "::trogon_uuid"
 )
 
 type recipe struct {
@@ -30,6 +33,18 @@ type templatePart struct {
 }
 
 func generateFile(file protoreflect.FileDescriptor, files *protoregistry.Files, runtimePath string) (string, error) {
+	enums := fileEnums(file)
+	_, enumSchemaErr := files.FindDescriptorByName(enumExtensionName)
+	_, valueSchemaErr := files.FindDescriptorByName(enumValueExtensionName)
+	if enumSchemaErr != nil && valueSchemaErr != nil {
+		configured, err := hasUUIDConfiguration(enums)
+		if err != nil {
+			return "", err
+		}
+		if !configured {
+			return "", nil
+		}
+	}
 	enumExt, err := extension(files, enumExtensionName)
 	if err != nil {
 		return "", err
@@ -44,7 +59,7 @@ func generateFile(file protoreflect.FileDescriptor, files *protoregistry.Files, 
 
 	var recipes []recipe
 	names := make(map[string]bool)
-	for _, enum := range fileEnums(file) {
+	for _, enum := range enums {
 		enumNamespace, hasNamespace, err := namespaceFromOptions(enum.Options(), enumExt)
 		if err != nil {
 			return "", fmt.Errorf("enum %s: %w", enum.FullName(), err)
@@ -96,6 +111,42 @@ func generateFile(file protoreflect.FileDescriptor, files *protoregistry.Files, 
 	return out.String(), nil
 }
 
+func hasUUIDConfiguration(enums []protoreflect.EnumDescriptor) (bool, error) {
+	for _, enum := range enums {
+		if present, err := optionsContainField(enum.Options(), enumExtensionNumber); present || err != nil {
+			return present, err
+		}
+		for i := 0; i < enum.Values().Len(); i++ {
+			if present, err := optionsContainField(enum.Values().Get(i).Options(), enumValueExtensionNumber); present || err != nil {
+				return present, err
+			}
+		}
+	}
+	return false, nil
+}
+
+func optionsContainField(options proto.Message, expected protowire.Number) (bool, error) {
+	encoded, err := proto.Marshal(options)
+	if err != nil {
+		return false, fmt.Errorf("marshal options: %w", err)
+	}
+	for len(encoded) > 0 {
+		number, kind, tagSize := protowire.ConsumeTag(encoded)
+		if tagSize < 0 {
+			return false, fmt.Errorf("decode option tag: %w", protowire.ParseError(tagSize))
+		}
+		if number == expected {
+			return true, nil
+		}
+		valueSize := protowire.ConsumeFieldValue(number, kind, encoded[tagSize:])
+		if valueSize < 0 {
+			return false, fmt.Errorf("decode option value: %w", protowire.ParseError(valueSize))
+		}
+		encoded = encoded[tagSize+valueSize:]
+	}
+	return false, nil
+}
+
 func fileEnums(file protoreflect.FileDescriptor) []protoreflect.EnumDescriptor {
 	var enums []protoreflect.EnumDescriptor
 	for i := 0; i < file.Enums().Len(); i++ {
@@ -134,9 +185,9 @@ func extension(files *protoregistry.Files, name string) (protoreflect.ExtensionT
 	var extendee, messageName protoreflect.FullName
 	switch name {
 	case enumExtensionName:
-		number, extendee, messageName = 870001, "google.protobuf.EnumOptions", "trogon.uuid.v1.EnumOptions"
+		number, extendee, messageName = enumExtensionNumber, "google.protobuf.EnumOptions", "trogon.uuid.v1.EnumOptions"
 	case enumValueExtensionName:
-		number, extendee, messageName = 870002, "google.protobuf.EnumValueOptions", "trogon.uuid.v1.EnumValueOptions"
+		number, extendee, messageName = enumValueExtensionNumber, "google.protobuf.EnumValueOptions", "trogon.uuid.v1.EnumValueOptions"
 	default:
 		return nil, fmt.Errorf("unsupported UUID extension %s", name)
 	}

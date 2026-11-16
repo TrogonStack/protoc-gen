@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
@@ -131,6 +132,40 @@ func TestProtocolUnannotatedFilesNeedNoUUIDSchema(t *testing.T) {
 				FileToGenerate: []string{file.GetName()}, ProtoFile: []*descriptorpb.FileDescriptorProto{file},
 			})
 			require.Empty(t, response.GetError())
+			require.Empty(t, response.File)
+		})
+	}
+}
+
+func TestProtocolConfiguredFilesRequireUUIDSchema(t *testing.T) {
+	for _, location := range []string{"enum", "value", "nested_value"} {
+		t.Run(location, func(t *testing.T) {
+			enum := &descriptorpb.EnumDescriptorProto{
+				Name:  proto.String("Identity"),
+				Value: []*descriptorpb.EnumValueDescriptorProto{{Name: proto.String("IDENTITY"), Number: proto.Int32(0)}},
+			}
+			file := &descriptorpb.FileDescriptorProto{
+				Name: proto.String("example/configured.proto"), Syntax: proto.String("proto3"),
+				EnumType: []*descriptorpb.EnumDescriptorProto{enum},
+			}
+			if location == "enum" {
+				enum.Options = new(descriptorpb.EnumOptions)
+				enum.Options.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 870001, protowire.BytesType), nil))
+			} else {
+				enum.Value[0].Options = new(descriptorpb.EnumValueOptions)
+				enum.Value[0].Options.ProtoReflect().SetUnknown(protowire.AppendBytes(protowire.AppendTag(nil, 870002, protowire.BytesType), nil))
+			}
+			if location == "nested_value" {
+				file.EnumType = nil
+				file.MessageType = []*descriptorpb.DescriptorProto{{
+					Name: proto.String("Container"), EnumType: []*descriptorpb.EnumDescriptorProto{enum},
+				}}
+			}
+			response := invokeRequest(t, &pluginpb.CodeGeneratorRequest{
+				Parameter:      proto.String("language=rust,features=uuid"),
+				FileToGenerate: []string{file.GetName()}, ProtoFile: []*descriptorpb.FileDescriptorProto{file},
+			})
+			require.Contains(t, response.GetError(), "required extension")
 			require.Empty(t, response.File)
 		})
 	}
