@@ -60,10 +60,13 @@ func TestProtocolRejectsMissingUnsupportedAndAmbiguousSelections(t *testing.T) {
 		{"language=rust,features=uuid+uuid", "duplicate"},
 		{"language=rust,features=uuid,framework=prost", "unknown option"},
 		{"language=rust,features=uuid,", "empty option"},
-		{"language=rust,features=uuid,runtime_path=::", "runtime_path"},
-		{"language=rust,features=uuid,runtime_path=::uuid_runtime::::x", "runtime_path"},
-		{"language=rust,features=uuid,runtime_path=::uuid_runtime::<String>", "runtime_path"},
-		{"language=rust,features=uuid,runtime_path=::uuid_runtime;panic!()", "runtime_path"},
+		{"language=rust,features=uuid,runtime_path=::uuid_runtime", "unknown option \"runtime_path\""},
+		{"language=rust,features=uuid,rs_runtime_path=::uuid_runtime,rs_runtime_path=::other", "duplicate option \"rs_runtime_path\""},
+		{"language=rust,features=uuid,rs_runtime_path=", "requires a nonempty value"},
+		{"language=rust,features=uuid,rs_runtime_path=::", "rs_runtime_path must"},
+		{"language=rust,features=uuid,rs_runtime_path=::uuid_runtime::::x", "rs_runtime_path must"},
+		{"language=rust,features=uuid,rs_runtime_path=::uuid_runtime::<String>", "rs_runtime_path must"},
+		{"language=rust,features=uuid,rs_runtime_path=::uuid_runtime;panic!()", "rs_runtime_path must"},
 	} {
 		t.Run(test.options, func(t *testing.T) {
 			request := validRequest(t)
@@ -77,7 +80,7 @@ func TestProtocolRejectsMissingUnsupportedAndAmbiguousSelections(t *testing.T) {
 
 func TestProtocolRustUUIDSelectionAndRuntimeAlias(t *testing.T) {
 	request := validRequest(t)
-	request.Parameter = proto.String("features=uuid,language=rust,runtime_path=::uuid_runtime")
+	request.Parameter = proto.String("features=uuid,language=rust,rs_runtime_path=::uuid_runtime")
 	response := invokeRequest(t, request)
 	require.Empty(t, response.GetError())
 	require.Len(t, response.File, 1)
