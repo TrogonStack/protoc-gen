@@ -29,12 +29,12 @@ if [ -z "$VERSION" ]; then
 fi
 
 case "$COMPONENT" in
-  protoc-gen-elixir | protoc-gen-elixir-grpc | protoc-gen-connect-go-servicestruct | protoc-gen-pony)
+  protoc-gen-elixir | protoc-gen-elixir-grpc | protoc-gen-connect-go-servicestruct | protoc-gen-pony | protoc-gen-trogon)
     echo "Valid component: ${COMPONENT}"
     ;;
   *)
     echo "ERROR: Unknown component: ${COMPONENT}"
-    echo "Valid components: protoc-gen-elixir, protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct, protoc-gen-pony"
+    echo "Valid components: protoc-gen-elixir, protoc-gen-elixir-grpc, protoc-gen-connect-go-servicestruct, protoc-gen-pony, protoc-gen-trogon"
     exit 1
     ;;
 esac

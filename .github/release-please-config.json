@@ -33,11 +33,18 @@
     },
     "cmd/protoc-gen-pony": {
       "component": "protoc-gen-pony"
+    },
+    "cmd/protoc-gen-trogon": {
+      "component": "protoc-gen-trogon"
     }
   },
   "plugins": [
     {
       "type": "sentence-case"
     }
-  ]
+  ],
+  "initial-version": "0.1.0",
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": false,
+  "draft": false
 }

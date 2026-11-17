@@ -60,7 +60,7 @@ tasks:
 
   build-plugin:
     desc: Build all protoc plugin binaries
-    deps: [build-plugin-go, build-plugin-elixir, build-plugin-elixir-grpc, build-plugin-pony]
+    deps: [build-plugin-go, build-plugin-elixir, build-plugin-elixir-grpc, build-plugin-pony, build-plugin-trogon]
 
   build-plugin-go:
     desc: Build the Go Connect protoc plugin binary
@@ -85,6 +85,12 @@ tasks:
     cmds:
       - echo "Building Pony protoc plugin binary..."
       - go build -o protoc-gen-pony ./cmd/protoc-gen-pony
+
+  build-plugin-trogon:
+    desc: Build the Trogon protoc plugin binary
+    cmds:
+      - echo "Building Trogon protoc plugin binary..."
+      - go build -o protoc-gen-trogon ./cmd/protoc-gen-trogon
 
   clean:
     desc: Clean build artifacts and coverage files
